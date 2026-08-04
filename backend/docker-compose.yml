@@ -1,0 +1,15 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tenderflow
+      POSTGRES_PASSWORD: tenderflow
+      POSTGRES_DB: tenderflow
+    ports:
+      - "5432:5432"
+    volumes:
+      - tenderflow_pgdata:/var/lib/postgresql/data
+
+volumes:
+  tenderflow_pgdata:
