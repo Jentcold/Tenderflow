@@ -22,8 +22,18 @@ class Notification(Base, UUIDPKMixin, TimestampMixin):
     __tablename__ = "notifications"
 
     type: Mapped[NotificationType]
-    tender_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("tenders.id", ondelete="CASCADE"))
+    tender_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("tenders.id", ondelete="CASCADE")
+    )
+    submission_id: Mapped[uuid.UUID | None] = mapped_column(
+            ForeignKey("submissions.id", ondelete="CASCADE")
+        )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), 
+        index=True
+    )
+    for_role: Mapped[UserRole | None] = mapped_column(index=True)
+
     message: Mapped[str] = mapped_column(Text)
-    for_role: Mapped[UserRole] = mapped_column(index=True)
     read: Mapped[bool] = mapped_column(default=False)
     details: Mapped[dict | None] = mapped_column(JSON)

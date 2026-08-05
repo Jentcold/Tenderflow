@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.audit import log_audit
 from app.core.deps import get_current_user, require_roles
 from app.database import get_db
-from app.models.evaluation import Evaluation, EvaluatorRole
+from app.models.evaluation import Evaluation
 from app.models.notification import Notification, NotificationType
 from app.models.submission import Submission
 from app.models.tender import Tender, TenderStatus

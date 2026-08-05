@@ -19,6 +19,8 @@ class Submission(Base, UUIDPKMixin):
     __tablename__ = "submissions"
 
     tender_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenders.id", ondelete="CASCADE"), index=True)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    
 
     company_name: Mapped[str] = mapped_column(String(255))
     contact_name: Mapped[str] = mapped_column(String(255))

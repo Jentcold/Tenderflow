@@ -13,6 +13,7 @@ class UserRole(str, enum.Enum):
     manager = "manager"
     supply_chain = "supply_chain"
     finance = "finance"
+    vendor = "vendor"
 
 
 class UserStatus(str, enum.Enum):

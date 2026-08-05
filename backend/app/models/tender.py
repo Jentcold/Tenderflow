@@ -62,7 +62,6 @@ class Tender(Base, UUIDPKMixin, TimestampMixin):
     supply_chain_rejection_reason: Mapped[str | None] = mapped_column(Text)
 
     # --- Award ---
-    # use_alter avoids a create-table ordering deadlock: submissions.tender_id points back at tenders.id
     awarded_vendor_submission_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("submissions.id", use_alter=True, name="fk_tenders_awarded_submission")
     )

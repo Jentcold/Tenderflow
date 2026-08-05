@@ -6,7 +6,7 @@ from sqlalchemy import DateTime, ForeignKey, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
-from app.models.base import UUIDPKMixin
+from app.models.base import UUIDPKMixin, TimestampMixin
 
 
 class EmailType(str, enum.Enum):
@@ -24,7 +24,7 @@ class EmailTemplate(Base):
     body: Mapped[str] = mapped_column(Text)
 
 
-class SentEmail(Base, UUIDPKMixin):
+class SentEmail(Base, UUIDPKMixin, TimestampMixin):
     __tablename__ = "sent_emails"
 
     tender_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenders.id", ondelete="CASCADE"), index=True)
@@ -36,4 +36,3 @@ class SentEmail(Base, UUIDPKMixin):
     type: Mapped[EmailType]
     subject: Mapped[str] = mapped_column(String(500))
     body: Mapped[str] = mapped_column(Text)
-    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
