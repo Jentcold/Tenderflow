@@ -1,25 +1,60 @@
-# Secrets — never commit. .env.example is the tracked template.
+# --- Secrets -----------------------------------------------------------
+# .env.example is the tracked template and must stay placeholder-only.
 .env
 .env.*
 !.env.example
 
-# Python
+# Keys, certificates, service-account files
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.jks
+id_rsa*
+id_ed25519*
+*credentials*.json
+*service-account*.json
+secrets.*
+.netrc
+.pgpass
+
+# --- Data ---------------------------------------------------------------
+# Vendor-uploaded bid documents: real company data, not source.
+backend/uploads/
+
+# Local databases and dumps — these carry live rows, including password hashes.
+*.sqlite
+*.sqlite3
+*.db
+*.sql
+*.dump
+*.bak
+
+# --- Python -------------------------------------------------------------
 __pycache__/
 *.py[cod]
 *.egg-info/
 .venv/
 venv/
+.Python
+build/
+dist/
 
-# Vendor-uploaded bid documents: user data, not source.
-backend/uploads/
-
-# Tooling
+# --- Tooling ------------------------------------------------------------
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.coverage
+htmlcov/
 
-# Editors / OS
+# --- Editors / OS -------------------------------------------------------
 .vscode/
 .idea/
+*.swp
 .DS_Store
 Thumbs.db
+
+# --- Logs ---------------------------------------------------------------
+*.log
+logs/
