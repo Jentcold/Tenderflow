@@ -32,6 +32,22 @@ async def get_current_user(
     return user
 
 
+async def get_current_user_optional(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    db: AsyncSession = Depends(get_db),
+) -> User | None:
+    """For public routes that behave better when they know who's calling.
+
+    No credentials means an anonymous caller, which is fine. Credentials that
+    are *present but bad* still 401 — quietly downgrading a expired token to
+    anonymous would leave a vendor wondering why their bid came out
+    unattributed.
+    """
+    if credentials is None:
+        return None
+    return await get_current_user(credentials, db)
+
+
 def require_roles(*roles: str) -> Callable:
     """Usage: Depends(require_roles('admin', 'procurement'))"""
 
@@ -41,3 +57,9 @@ def require_roles(*roles: str) -> Callable:
         return user
 
     return checker
+
+
+# Everyone who works for the company — i.e. every role except the vendors
+# themselves, who must never see other vendors' details.
+STAFF_ROLES = ("admin", "procurement", "manager", "supply_chain", "finance")
+require_staff = require_roles(*STAFF_ROLES)

@@ -14,6 +14,7 @@ from app.routers import (
     tenders,
     users,
     vendor,
+    vendors,
 )
 
 app = FastAPI(title="TenderFlow API", version="1.0.0")
@@ -38,7 +39,8 @@ app.include_router(notifications.router, prefix=API_PREFIX)
 app.include_router(audit.router, prefix=API_PREFIX)
 app.include_router(emails.router, prefix=API_PREFIX)
 app.include_router(reports.router, prefix=API_PREFIX)
-app.include_router(vendor.router, prefix=API_PREFIX)  # public, no auth
+app.include_router(vendors.router, prefix=API_PREFIX)  # staff-only vendor directory
+app.include_router(vendor.router, prefix=API_PREFIX)  # public vendor portal
 
 
 @app.get("/health")

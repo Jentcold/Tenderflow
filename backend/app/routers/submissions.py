@@ -6,25 +6,39 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import log_audit
-from app.core.deps import get_current_user, require_roles
+from app.core.deps import require_roles, require_staff
+from app.core.pagination import Page, Pagination, paginate
 from app.database import get_db
 from app.models.submission import Submission
 from app.models.user import User
 from app.schemas.submission import SubmissionOut, SubmissionStatusUpdate
 from app.services.storage_service import UPLOAD_DIR
 
-router = APIRouter(prefix="/submissions", tags=["submissions"], dependencies=[Depends(get_current_user)])
+# Staff-only. Vendors are authenticated users too, so gating on
+# get_current_user alone would have let them read this router.
+router = APIRouter(prefix="/submissions", tags=["submissions"], dependencies=[Depends(require_staff)])
 
 
-@router.get("", response_model=list[SubmissionOut])
+@router.get("", response_model=Page[SubmissionOut])
 async def list_submissions(
-    tender_id: uuid.UUID | None = Query(default=None), db: AsyncSession = Depends(get_db)
-) -> list[Submission]:
+    tender_id: uuid.UUID | None = Query(default=None),
+    vendor_id: uuid.UUID | None = Query(default=None, description="Only bids from this registered vendor"),
+    page: Pagination = Depends(),
+    db: AsyncSession = Depends(get_db),
+) -> Page[SubmissionOut]:
     stmt = select(Submission).order_by(Submission.submitted_at.desc())
     if tender_id:
         stmt = stmt.where(Submission.tender_id == tender_id)
-    result = await db.execute(stmt)
-    return list(result.scalars().all())
+    if vendor_id:
+        stmt = stmt.where(Submission.vendor_id == vendor_id)
+
+    submissions, total = await paginate(db, stmt, page)
+    return Page[SubmissionOut](
+        items=[SubmissionOut.model_validate(s) for s in submissions],
+        total=total,
+        limit=page.limit,
+        offset=page.offset,
+    )
 
 
 @router.get("/files/{stored_path:path}")

@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, Text, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -12,6 +12,13 @@ from app.models.base import UUIDPKMixin, TimestampMixin
 class EmailType(str, enum.Enum):
     winner = "winner"
     loser = "loser"
+
+
+class EmailStatus(str, enum.Enum):
+    queued = "queued"        # rendered and stored, not handed to SMTP yet
+    sent = "sent"            # the mail server accepted it
+    failed = "failed"        # every attempt was refused; see `error`
+    simulated = "simulated"  # no SMTP_HOST configured, nothing was delivered
 
 
 class EmailTemplate(Base):
@@ -36,3 +43,11 @@ class SentEmail(Base, UUIDPKMixin, TimestampMixin):
     type: Mapped[EmailType]
     subject: Mapped[str] = mapped_column(String(500))
     body: Mapped[str] = mapped_column(Text)
+
+    # Delivery outcome. `created_at` (from TimestampMixin) is when the mail was
+    # queued; `sent_at` is when a mail server actually took it, and stays NULL
+    # until then.
+    status: Mapped[EmailStatus] = mapped_column(default=EmailStatus.queued, index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

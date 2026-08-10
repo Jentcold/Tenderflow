@@ -1,12 +1,12 @@
 import uuid
-from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import log_audit
-from app.core.deps import get_current_user, require_roles
+from app.core.deps import require_roles, require_staff
+from app.core.time import server_now
 from app.database import get_db
 from app.models.evaluation import Evaluation
 from app.models.notification import Notification, NotificationType
@@ -14,10 +14,12 @@ from app.models.submission import Submission
 from app.models.tender import Tender, TenderStatus
 from app.models.user import User, UserRole
 from app.schemas.evaluation import EvaluationSave, RankedSubmissionOut, RejectionReason
-from app.services.email_service import send_award_emails
-from app.services.evaluation_service import combine_scores, weighted_total
+from app.services.email_service import dispatch_emails, send_award_emails
+from app.services.evaluation_service import weighted_total
 
-router = APIRouter(prefix="/evaluations", tags=["evaluations"], dependencies=[Depends(get_current_user)])
+# Staff-only. Vendors are authenticated users too, so gating on
+# get_current_user alone would have let them read this router.
+router = APIRouter(prefix="/evaluations", tags=["evaluations"], dependencies=[Depends(require_staff)])
 
 
 # ---------------------------------------------------------------- helpers --
@@ -41,23 +43,19 @@ async def _evaluations_for_tender(db: AsyncSession, tender_id: uuid.UUID) -> lis
     return list(result.scalars().all())
 
 
-async def _build_ranked_list(db: AsyncSession, tender: Tender, combined: bool) -> list[RankedSubmissionOut]:
+async def _build_ranked_list(db: AsyncSession, tender: Tender) -> list[RankedSubmissionOut]:
+    """Submissions ranked by procurement's score, highest first. Unscored
+    submissions sort last rather than being dropped, so the evaluation page can
+    still show what's left to do."""
     submissions = (
         await db.execute(select(Submission).where(Submission.tender_id == tender.id))
     ).scalars().all()
     evals = await _evaluations_for_tender(db, tender.id)
-
-    proc_by_sub = {e.submission_id: e for e in evals if e.evaluator_role == EvaluatorRole.procurement}
-    mgr_by_sub = {e.submission_id: e for e in evals if e.evaluator_role == EvaluatorRole.manager}
+    eval_by_sub = {e.submission_id: e for e in evals}
 
     rows: list[RankedSubmissionOut] = []
     for sub in submissions:
-        proc_eval = proc_by_sub.get(sub.id)
-        mgr_eval = mgr_by_sub.get(sub.id)
-        combined_score = combine_scores(
-            float(proc_eval.total_score) if proc_eval else None,
-            float(mgr_eval.total_score) if mgr_eval else None,
-        )
+        evaluation = eval_by_sub.get(sub.id)
         rows.append(
             RankedSubmissionOut(
                 id=sub.id,
@@ -69,21 +67,12 @@ async def _build_ranked_list(db: AsyncSession, tender: Tender, combined: bool) -
                 notes=sub.notes,
                 files=sub.files,
                 submitted_at=sub.submitted_at,
-                procurement_evaluation=proc_eval,
-                manager_evaluation=mgr_eval,
-                combined_score=combined_score,
+                evaluation=evaluation,
+                score=float(evaluation.total_score) if evaluation else None,
             )
         )
 
-    if combined:
-        rows.sort(key=lambda r: (r.combined_score is None, -(r.combined_score or 0)))
-    else:
-        rows.sort(
-            key=lambda r: (
-                r.procurement_evaluation is None,
-                -(float(r.procurement_evaluation.total_score) if r.procurement_evaluation else 0),
-            )
-        )
+    rows.sort(key=lambda r: (r.score is None, -(r.score or 0)))
     return rows
 
 
@@ -110,7 +99,7 @@ async def evaluation_overview(db: AsyncSession = Depends(get_db)) -> list[dict]:
         for row in (
             await db.execute(
                 select(Evaluation.tender_id, func.count(func.distinct(Evaluation.submission_id)))
-                .where(Evaluation.tender_id.in_(sub_counts.keys()), Evaluation.evaluator_role == EvaluatorRole.procurement)
+                .where(Evaluation.tender_id.in_(sub_counts.keys()))
                 .group_by(Evaluation.tender_id)
             )
         ).all()
@@ -133,13 +122,7 @@ async def evaluation_overview(db: AsyncSession = Depends(get_db)) -> list[dict]:
 @router.get("/tenders/{tender_id}/rankings", response_model=list[RankedSubmissionOut])
 async def get_rankings(tender_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> list[RankedSubmissionOut]:
     tender = await _get_tender_or_404(db, tender_id)
-    return await _build_ranked_list(db, tender, combined=False)
-
-
-@router.get("/tenders/{tender_id}/combined-rankings", response_model=list[RankedSubmissionOut])
-async def get_combined_rankings(tender_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> list[RankedSubmissionOut]:
-    tender = await _get_tender_or_404(db, tender_id)
-    return await _build_ranked_list(db, tender, combined=True)
+    return await _build_ranked_list(db, tender)
 
 
 # -------------------------------------------------------- saving scores ----
@@ -148,27 +131,27 @@ async def _save_evaluation(
     db: AsyncSession,
     submission: Submission,
     tender: Tender,
-    role: EvaluatorRole,
     payload: EvaluationSave,
     user: User,
 ) -> Evaluation:
+    """Create or update the submission's single evaluation. `submission_id` is
+    unique on the table, so re-scoring overwrites in place."""
     total = weighted_total(payload.scores, tender.scoring_criteria)
 
-    evaluation = await db.scalar(
-        select(Evaluation).where(Evaluation.submission_id == submission.id, Evaluation.evaluator_role == role)
-    )
+    evaluation = await db.scalar(select(Evaluation).where(Evaluation.submission_id == submission.id))
     if not evaluation:
-        evaluation = Evaluation(submission_id=submission.id, tender_id=tender.id, evaluator_role=role)
+        evaluation = Evaluation(submission_id=submission.id, tender_id=tender.id)
         db.add(evaluation)
 
     evaluation.scores = payload.scores
     evaluation.total_score = total
     evaluation.notes = payload.notes
     evaluation.evaluated_by = user.id
-    evaluation.evaluated_at = datetime.now(timezone.utc)
+    evaluation.evaluated_at = server_now()
 
-    label = "Manager Evaluation" if role == EvaluatorRole.manager else "Submission Evaluated"
-    await log_audit(db, label, f"{submission.company_name} scored {total} for {tender.serial}", user.name)
+    await log_audit(
+        db, "Submission Evaluated", f"{submission.company_name} scored {total} for {tender.serial}", user.name
+    )
     await db.commit()
     await db.refresh(evaluation)
     return evaluation
@@ -181,139 +164,69 @@ async def save_procurement_evaluation(
     user: User = Depends(require_roles("admin", "procurement")),
     db: AsyncSession = Depends(get_db),
 ) -> RankedSubmissionOut:
+    """Scoring is procurement's alone. Manager and supply chain review the
+    result downstream but never write an evaluation of their own."""
     submission = await _get_submission_or_404(db, submission_id)
     tender = await _get_tender_or_404(db, submission.tender_id)
-    await _save_evaluation(db, submission, tender, EvaluatorRole.procurement, payload, user)
-    rows = await _build_ranked_list(db, tender, combined=False)
-    return next(r for r in rows if r.id == submission_id)
-
-
-@router.post("/submissions/{submission_id}/manager", response_model=RankedSubmissionOut)
-async def save_manager_evaluation(
-    submission_id: uuid.UUID,
-    payload: EvaluationSave,
-    user: User = Depends(require_roles("admin", "manager")),
-    db: AsyncSession = Depends(get_db),
-) -> RankedSubmissionOut:
-    submission = await _get_submission_or_404(db, submission_id)
-    tender = await _get_tender_or_404(db, submission.tender_id)
-    await _save_evaluation(db, submission, tender, EvaluatorRole.manager, payload, user)
-    rows = await _build_ranked_list(db, tender, combined=True)
+    await _save_evaluation(db, submission, tender, payload, user)
+    rows = await _build_ranked_list(db, tender)
     return next(r for r in rows if r.id == submission_id)
 
 
 # ------------------------------------------------------------- workflow ----
 
-@router.post("/tenders/{tender_id}/submit-to-manager")
-async def submit_to_manager(
+@router.post("/tenders/{tender_id}/submit-for-award")
+async def submit_for_award(
     tender_id: uuid.UUID,
     user: User = Depends(require_roles("admin", "procurement")),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
+    """Procurement signalling that scoring is finished. Goes straight to supply
+    chain — the manager's involvement ended when they approved the tender."""
     tender = await _get_tender_or_404(db, tender_id)
-    rows = await _build_ranked_list(db, tender, combined=False)
-    evaluated = [r for r in rows if r.procurement_evaluation]
+    rows = await _build_ranked_list(db, tender)
+    evaluated = [r for r in rows if r.evaluation]
     if not evaluated:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Please evaluate at least one submission first")
 
     top = evaluated[0]
     tender.evaluation_submitted = True
-    tender.evaluation_submitted_at = datetime.now(timezone.utc)
+    tender.evaluation_submitted_at = server_now()
     tender.evaluation_submitted_by = user.id
 
     db.add(
         Notification(
             type=NotificationType.evaluation_submitted,
             tender_id=tender.id,
-            message=f"Evaluation submitted for {tender.serial} - {tender.name}",
-            for_role=UserRole.manager,
-        )
-    )
-    await log_audit(
-        db,
-        "Evaluation Submitted",
-        f"{tender.serial} submitted to Department Manager. Recommended: {top.company_name}",
-        user.name,
-    )
-    await db.commit()
-    return {"detail": "Submitted to Department Manager", "recommended_vendor": top.company_name}
-
-
-@router.post("/tenders/{tender_id}/manager-approve")
-async def manager_approve(
-    tender_id: uuid.UUID,
-    user: User = Depends(require_roles("admin", "manager")),
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    tender = await _get_tender_or_404(db, tender_id)
-    rows = await _build_ranked_list(db, tender, combined=True)
-    if not any(r.manager_evaluation for r in rows):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Please add your evaluation to at least one submission first")
-
-    top = rows[0]
-    tender.manager_approved = True
-    tender.manager_rejected = False
-    tender.manager_reviewed_at = datetime.now(timezone.utc)
-    tender.manager_reviewed_by = user.id
-
-    db.add(
-        Notification(
-            type=NotificationType.manager_approved,
-            tender_id=tender.id,
-            message=f"{tender.serial} approved by Manager. Combined Score: {top.combined_score}. Recommended: {top.company_name}",
+            message=f"{tender.serial} scored and ready to award. Top: {top.company_name} ({top.score})",
             for_role=UserRole.supply_chain,
         )
     )
     await log_audit(
         db,
-        "Evaluation Approved",
-        f"{tender.serial} approved by Manager. Recommended: {top.company_name} (Combined: {top.combined_score})",
+        "Evaluation Submitted",
+        f"{tender.serial} sent to Supply Chain. Top scored: {top.company_name} ({top.score})",
         user.name,
     )
     await db.commit()
-    return {"detail": "Forwarded to Supply Chain Head", "recommended_vendor": top.company_name}
-
-
-@router.post("/tenders/{tender_id}/manager-reject")
-async def manager_reject(
-    tender_id: uuid.UUID,
-    payload: RejectionReason,
-    user: User = Depends(require_roles("admin", "manager")),
-    db: AsyncSession = Depends(get_db),
-) -> dict:
-    tender = await _get_tender_or_404(db, tender_id)
-    if not payload.reason.strip():
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Please provide a reason for the requested changes")
-
-    tender.manager_approved = False
-    tender.manager_rejected = True
-    tender.manager_reviewed_at = datetime.now(timezone.utc)
-    tender.manager_reviewed_by = user.id
-    tender.manager_feedback = payload.reason
-    tender.evaluation_submitted = False
-
-    db.add(
-        Notification(
-            type=NotificationType.changes_requested,
-            tender_id=tender.id,
-            message=f"Changes requested for {tender.serial}: {payload.reason}",
-            for_role=UserRole.procurement,
-        )
-    )
-    await log_audit(db, "Changes Requested", f"{tender.serial} - Manager requested changes: {payload.reason}", user.name)
-    await db.commit()
-    return {"detail": "Feedback sent to Procurement team"}
+    return {"detail": "Sent to Supply Chain for award", "recommended_vendor": top.company_name}
 
 
 @router.post("/tenders/{tender_id}/supply-chain-approve")
 async def supply_chain_approve(
     tender_id: uuid.UUID,
+    background: BackgroundTasks,
     user: User = Depends(require_roles("admin", "supply_chain")),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     tender = await _get_tender_or_404(db, tender_id)
-    rows = await _build_ranked_list(db, tender, combined=True)
-    evaluated = [r for r in rows if r.combined_score is not None]
+    if not tender.evaluation_submitted:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "Procurement has not finished scoring this tender yet"
+        )
+
+    rows = await _build_ranked_list(db, tender)
+    evaluated = [r for r in rows if r.score is not None]
     if not evaluated:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No evaluated submissions to award")
 
@@ -324,7 +237,7 @@ async def supply_chain_approve(
 
     tender.supply_chain_approved = True
     tender.supply_chain_rejected = False
-    tender.supply_chain_reviewed_at = datetime.now(timezone.utc)
+    tender.supply_chain_reviewed_at = server_now()
     tender.supply_chain_reviewed_by = user.id
     tender.awarded_vendor_submission_id = top.id
     tender.awarded_vendor_name = top.company_name
@@ -347,8 +260,8 @@ async def supply_chain_approve(
         )
     )
 
-    combined_scores_by_submission = {r.id: r.combined_score for r in rows}
-    await send_award_emails(db, tender, submissions, combined_scores_by_submission)
+    scores_by_submission = {r.id: r.score for r in rows}
+    queued = await send_award_emails(db, tender, submissions, scores_by_submission)
 
     await log_audit(
         db,
@@ -357,7 +270,15 @@ async def supply_chain_approve(
         user.name,
     )
     await db.commit()
-    return {"detail": "Tender awarded, emails sent to all vendors", "awarded_vendor": top.company_name}
+
+    # Delivery happens after the response — the award is committed either way,
+    # and any failures land on the email log for a retry.
+    background.add_task(dispatch_emails, [e.id for e in queued])
+
+    return {
+        "detail": f"Tender awarded, {len(queued)} vendor email(s) queued",
+        "awarded_vendor": top.company_name,
+    }
 
 
 @router.post("/tenders/{tender_id}/supply-chain-reject")
@@ -373,7 +294,7 @@ async def supply_chain_reject(
 
     tender.supply_chain_approved = False
     tender.supply_chain_rejected = True
-    tender.supply_chain_reviewed_at = datetime.now(timezone.utc)
+    tender.supply_chain_reviewed_at = server_now()
     tender.supply_chain_reviewed_by = user.id
     tender.supply_chain_rejection_reason = payload.reason
     tender.status = TenderStatus.rejected

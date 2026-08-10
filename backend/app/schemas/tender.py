@@ -3,7 +3,8 @@ from datetime import date, datetime, time
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
-from app.models.tender import TenderCategory, TenderStatus
+from app.models.category import Category
+from app.models.tender import TenderStatus
 
 
 class ScoringCriterion(BaseModel):
@@ -17,7 +18,7 @@ class TenderCreate(BaseModel):
     deadline_date: date
     deadline_time: time
     currency: str
-    category: TenderCategory = TenderCategory.goods
+    category: Category = Category.goods
     department_id: uuid.UUID
     required_docs: list[str] = []
     scoring_criteria: list[ScoringCriterion]
@@ -45,7 +46,7 @@ class TenderOut(BaseModel):
     deadline_date: date
     deadline_time: time
     currency: str
-    category: TenderCategory
+    category: Category
     status: TenderStatus
     department_id: uuid.UUID | None
     required_docs: list[str]
@@ -66,8 +67,25 @@ class TenderOut(BaseModel):
     awarded_email: str | None
 
 
-class TenderListItem(BaseModel):
-    """Lighter payload for table/list views, includes computed submission_count."""
+class TenderListItem(TenderOut):
+    """A tender plus the two things every view needs that the row doesn't store.
+
+    `is_expired` is computed per request rather than persisted: nothing sweeps
+    the table at the deadline, so `status` stays "open" past it. A caller that
+    trusts status alone will offer a tender vendors can no longer bid on.
+    """
+
+    submission_count: int = 0
+    is_expired: bool = False
+
+
+class VendorTenderOut(BaseModel):
+    """What a vendor is allowed to see about a tender.
+
+    Deliberately narrower than TenderOut: no scoring_criteria, no submission
+    count, nothing from the approval trail or the award. A bidder shouldn't
+    learn how they'll be scored against rivals, or how many rivals there are.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -78,10 +96,9 @@ class TenderListItem(BaseModel):
     deadline_date: date
     deadline_time: time
     currency: str
-    category: TenderCategory
-    status: TenderStatus
-    department_id: uuid.UUID | None
-    submission_count: int = 0
+    category: Category
+    required_docs: list[str]
+    already_submitted: bool = False
 
 
 class ExtendDeadlineRequest(BaseModel):

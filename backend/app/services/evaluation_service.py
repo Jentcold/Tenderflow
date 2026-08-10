@@ -8,10 +8,3 @@ def weighted_total(scores: dict[str, float], scoring_criteria: list[dict]) -> fl
     return round(total, 2)
 
 
-def combine_scores(procurement_score: float | None, manager_score: float | None) -> float | None:
-    """50/50 split once both stages have scored a submission; falls back to procurement-only."""
-    if procurement_score is not None and manager_score is not None:
-        return round((procurement_score * 0.5) + (manager_score * 0.5), 2)
-    if procurement_score is not None:
-        return procurement_score
-    return None

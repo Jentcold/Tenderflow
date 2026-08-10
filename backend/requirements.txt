@@ -9,4 +9,8 @@ pyjwt==2.9.0
 bcrypt==4.2.0
 python-dotenv==1.0.1
 python-multipart==0.0.9
+aiosmtplib==3.0.2
 psycopg2-binary==2.9.9
+# Windows ships no IANA timezone database, so zoneinfo can't resolve
+# SERVER_TIMEZONE without this. No-op on Linux.
+tzdata==2024.1

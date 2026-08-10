@@ -3,8 +3,6 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
-from app.models.evaluation import EvaluatorRole
-
 
 class EvaluationSave(BaseModel):
     scores: dict[str, float]
@@ -17,7 +15,6 @@ class EvaluationOut(BaseModel):
     id: uuid.UUID
     submission_id: uuid.UUID
     tender_id: uuid.UUID
-    evaluator_role: EvaluatorRole
     scores: dict
     total_score: float
     notes: str | None
@@ -26,7 +23,7 @@ class EvaluationOut(BaseModel):
 
 
 class RankedSubmissionOut(BaseModel):
-    """Submission plus whatever evaluation(s) exist, sorted for display."""
+    """Submission plus its evaluation, if procurement has scored it yet."""
 
     id: uuid.UUID
     company_name: str
@@ -38,9 +35,10 @@ class RankedSubmissionOut(BaseModel):
     files: list[str]
     submitted_at: datetime
 
-    procurement_evaluation: EvaluationOut | None = None
-    manager_evaluation: EvaluationOut | None = None
-    combined_score: float | None = None
+    evaluation: EvaluationOut | None = None
+    # Mirrors evaluation.total_score, or None when unscored. Ranking sorts on
+    # this, so callers don't have to reach through a nullable relation.
+    score: float | None = None
 
 
 class RejectionReason(BaseModel):

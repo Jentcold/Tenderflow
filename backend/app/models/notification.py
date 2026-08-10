@@ -10,10 +10,11 @@ from app.models.user import UserRole
 
 
 class NotificationType(str, enum.Enum):
+    tender_pending_approval = "tender_pending_approval"  # -> manager, a new tender needs a decision
+    manager_approved = "manager_approved"                # -> procurement, the tender is now open
+    changes_requested = "changes_requested"              # -> procurement, manager sent it back
     submission_received = "submission_received"
-    evaluation_submitted = "evaluation_submitted"
-    changes_requested = "changes_requested"
-    manager_approved = "manager_approved"
+    evaluation_submitted = "evaluation_submitted"        # -> supply chain, scoring is done
     sc_rejected = "sc_rejected"
     tender_awarded = "tender_awarded"
 

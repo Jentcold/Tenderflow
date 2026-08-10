@@ -3,7 +3,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
-from app.models.email import EmailType
+from app.models.email import EmailStatus, EmailType
 
 
 class EmailTemplateOut(BaseModel):
@@ -41,4 +41,9 @@ class SentEmailOut(BaseModel):
     type: EmailType
     subject: str
     body: str
-    sent_at: datetime
+
+    status: EmailStatus
+    attempts: int
+    error: str | None
+    created_at: datetime           # when it was queued
+    sent_at: datetime | None       # when a mail server accepted it, if ever

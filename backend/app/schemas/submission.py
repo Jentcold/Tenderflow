@@ -21,11 +21,14 @@ class SubmissionOut(BaseModel):
 
     id: uuid.UUID
     tender_id: uuid.UUID
+    # Null for bids filed through the public link without logging in.
+    vendor_id: uuid.UUID | None
     company_name: str
     contact_name: str
     email: EmailStr
     phone: str
     total_amount: float
+    currency: str
     notes: str | None
     files: list[str]
     status: SubmissionStatus

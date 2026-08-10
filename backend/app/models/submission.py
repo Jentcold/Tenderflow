@@ -19,8 +19,15 @@ class Submission(Base, UUIDPKMixin):
     __tablename__ = "submissions"
 
     tender_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenders.id", ondelete="CASCADE"), index=True)
-    currency: Mapped[str] = mapped_column(String(3), nullable=False)
-    
+    # Copied from the tender on submit, so the width has to match tenders.currency.
+    currency: Mapped[str] = mapped_column(String(8), nullable=False)
+
+    # Set only when a registered vendor was authenticated at submit time.
+    # Bids through the public link leave it null — the company_name/email
+    # below are then just what the form said, with nothing vouching for them.
+    vendor_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("vendors.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
     company_name: Mapped[str] = mapped_column(String(255))
     contact_name: Mapped[str] = mapped_column(String(255))
