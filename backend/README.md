@@ -294,10 +294,12 @@ showed up when something actually exercised the route.
 - The `{combined_score}` email-template placeholder kept its name — it's stored
   in `email_templates` rows, so renaming it would stop it substituting in any
   template already saved. It now resolves to the single evaluation score.
-- **The old `JWT_SECRET` is still in git history on `origin/main`.** It's been
-  rotated, so the published one is worthless, but the commits remain. The
-  `SEED_ADMIN_PASSWORD` that shipped alongside it needs changing on the admin
-  account itself — rotating the file doesn't touch the row already seeded.
+- **Change the seeded admin password before this is reachable from anywhere.**
+  `backend/.env` was once committed and pushed, so its `SEED_ADMIN_PASSWORD` is
+  public. `JWT_SECRET` was rotated and the history rewritten, but rotating the
+  file never touched the admin row already in the database — that password is
+  still live. Deliberately left for now: the app only runs locally. It stops
+  being fine the moment anything else can reach the API.
 - Rate limiting is in-memory: counters reset on restart and each worker keeps
   its own. Fine for one uvicorn process, needs Redis beyond that.
 - Nothing closes a tender when its deadline passes; `is_expired` is computed
