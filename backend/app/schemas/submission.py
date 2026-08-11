@@ -25,7 +25,10 @@ class SubmissionOut(BaseModel):
     vendor_id: uuid.UUID | None
     company_name: str
     contact_name: str
-    email: EmailStr
+    # Plain str on the way out. The submit endpoint validates as EmailStr, so
+    # nothing new gets in malformed; validating again on read only means one bad
+    # legacy row 500s the entire list instead of just itself.
+    email: str
     phone: str
     total_amount: float
     currency: str

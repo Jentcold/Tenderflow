@@ -1,6 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from pydantic import EmailStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,8 +20,17 @@ from app.schemas.email import (
     SentEmailOut,
 )
 from app.services.email_service import dispatch_emails, render_template
+from app.services.mailer import send_message
 
 router = APIRouter(prefix="/emails", tags=["emails"], dependencies=[Depends(require_roles("admin", "procurement"))])
+
+# Audit-log wording per template. A dict rather than a ternary so adding a
+# fourth type can't silently get filed under the wrong name.
+TEMPLATE_LABELS = {
+    EmailType.winner: "Winner",
+    EmailType.loser: "Non-Winner",
+    EmailType.award_revoked: "Award Withdrawn",
+}
 
 SAMPLE_PLACEHOLDERS = {
     "{vendor_company}": "Acme Corporation",
@@ -54,8 +64,9 @@ async def update_template(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Template not found")
     template.subject = payload.subject
     template.body = payload.body
-    label = "Winner" if email_type == EmailType.winner else "Non-Winner"
-    await log_audit(db, "Email Template Updated", f"{label} email template saved", user.name)
+    await log_audit(
+        db, "Email Template Updated", f"{TEMPLATE_LABELS[email_type]} email template saved", user.name
+    )
     await db.commit()
     await db.refresh(template)
     return template
@@ -94,6 +105,59 @@ async def get_sent_email(email_id: uuid.UUID, db: AsyncSession = Depends(get_db)
     if not email:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Email not found")
     return email
+
+
+@router.get("/config")
+async def mail_config(user: User = Depends(require_roles("admin"))) -> dict:
+    """What the mail settings actually are, so a silent non-delivery can be
+    diagnosed without shell access. Never returns SMTP_PASSWORD."""
+    return {
+        "configured": settings.mail_configured,
+        "host": settings.SMTP_HOST or None,
+        "port": settings.SMTP_PORT,
+        "username": settings.SMTP_USERNAME or None,
+        "start_tls": settings.SMTP_START_TLS,
+        "use_ssl": settings.SMTP_USE_SSL,
+        "from": settings.MAIL_FROM,
+        "from_name": settings.MAIL_FROM_NAME,
+        # Loud on purpose: this one silently reroutes every vendor email.
+        "redirect_all_mail_to": settings.MAIL_REDIRECT_TO or None,
+    }
+
+
+@router.post("/test")
+async def send_test_email(
+    to: EmailStr = Query(..., description="Where to send the test"),
+    user: User = Depends(require_roles("admin")),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Prove the SMTP settings work without running a whole award.
+
+    Sends inline rather than as a background task: the entire point is to see
+    the failure, and a BackgroundTask would bury it in the server log.
+    """
+    if not settings.mail_configured:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "No SMTP server configured — set SMTP_HOST in .env and restart",
+        )
+
+    subject = "TenderFlow test email"
+    body = (
+        f"This is a test message from TenderFlow, sent by {user.name}.\n\n"
+        f"If you are reading it, SMTP delivery works.\n"
+    )
+    try:
+        await send_message(to, subject, body)
+    except Exception as exc:  # noqa: BLE001 — the error text is the whole point
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, f"SMTP rejected the message — {type(exc).__name__}: {exc}"
+        ) from exc
+
+    await log_audit(db, "Test Email Sent", f"To {to}", user.name)
+    await db.commit()
+    delivered_to = settings.MAIL_REDIRECT_TO.strip() or to
+    return {"detail": f"Test email delivered to {delivered_to}", "requested": to}
 
 
 @router.post("/log/{email_id}/resend", response_model=SentEmailOut)

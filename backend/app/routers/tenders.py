@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core.audit import log_audit
-from app.core.deps import require_roles, require_staff
+from app.core.deps import get_current_user, require_internal, require_roles, require_staff
 from app.core.pagination import Page, Pagination, count_rows
 from app.core.time import is_past_deadline, server_now
 from app.database import get_db
@@ -17,6 +17,7 @@ from app.models.user import User, UserRole
 from app.schemas.evaluation import RejectionReason
 from app.schemas.tender import (
     ExtendDeadlineRequest,
+    MyRequestOut,
     TenderCreate,
     TenderListItem,
     TenderOut,
@@ -24,11 +25,16 @@ from app.schemas.tender import (
 )
 from app.services.tender_service import generate_serial
 
-# Staff-only. Vendors are authenticated users too, so gating on
-# get_current_user alone would have let them read this router.
-router = APIRouter(prefix="/tenders", tags=["tenders"], dependencies=[Depends(require_staff)])
+# Internal-only. Vendors are authenticated users too, so gating on
+# get_current_user alone would have let them read this router. The gate is
+# `require_internal` rather than `require_staff` because employees raise
+# requests here — but it only gets them through the door, and every endpoint
+# below re-checks. The two that used to lean on the router gate alone
+# (`list_tenders`, `get_tender`) now carry `require_staff` themselves.
+router = APIRouter(prefix="/tenders", tags=["tenders"], dependencies=[Depends(require_internal)])
 
 CAN_MANAGE = require_roles("admin", "procurement")
+CAN_CREATE = require_roles("admin", "procurement", "employee")
 
 
 async def _submission_count(db: AsyncSession, tender_id: uuid.UUID) -> int:
@@ -55,7 +61,7 @@ def _list_item(tender: Tender, submission_count: int) -> TenderListItem:
     )
 
 
-@router.get("", response_model=Page[TenderListItem])
+@router.get("", response_model=Page[TenderListItem], dependencies=[Depends(require_staff)])
 async def list_tenders(
     status_filter: TenderStatus | None = Query(default=None, alias="status"),
     page: Pagination = Depends(),
@@ -77,7 +83,45 @@ async def list_tenders(
     )
 
 
-@router.get("/{tender_id}")
+# Declared above /{tender_id} — registered the other way round, "my-requests"
+# would be parsed as a tender id and 422 on the UUID.
+@router.get("/my-requests", response_model=Page[MyRequestOut])
+async def list_my_requests(
+    status_filter: TenderStatus | None = Query(default=None, alias="status"),
+    page: Pagination = Depends(),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> Page[MyRequestOut]:
+    """Tenders this caller raised, in the narrow requester's view.
+
+    Open to every internal role, since "things I filed" means the same for all
+    of them, but it is the employee's only window onto tenders — they have no
+    access to the company-wide list above. It carries the full request body,
+    not a summary, so the edit form can be populated without a detail fetch
+    they aren't allowed to make.
+    """
+    stmt = select(Tender).where(Tender.created_by == user.id).order_by(Tender.created_at.desc())
+    if status_filter:
+        stmt = stmt.where(Tender.status == status_filter)
+
+    total = await count_rows(db, stmt)
+    tenders = (await db.execute(stmt.limit(page.limit).offset(page.offset))).scalars().all()
+
+    return Page[MyRequestOut](
+        items=[
+            MyRequestOut(
+                **MyRequestOut.model_validate(t).model_dump(exclude={"is_expired"}),
+                is_expired=is_past_deadline(t.deadline_date, t.deadline_time),
+            )
+            for t in tenders
+        ],
+        total=total,
+        limit=page.limit,
+        offset=page.offset,
+    )
+
+
+@router.get("/{tender_id}", dependencies=[Depends(require_staff)])
 async def get_tender(tender_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> dict:
     tender = await db.get(Tender, tender_id)
     if not tender:
@@ -89,7 +133,7 @@ async def get_tender(tender_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -
 
 @router.post("", response_model=TenderOut, status_code=status.HTTP_201_CREATED)
 async def create_tender(
-    payload: TenderCreate, user: User = Depends(CAN_MANAGE), db: AsyncSession = Depends(get_db)
+    payload: TenderCreate, user: User = Depends(CAN_CREATE), db: AsyncSession = Depends(get_db)
 ) -> Tender:
     tender = Tender(
         serial=generate_serial(),
@@ -117,6 +161,32 @@ async def create_tender(
     await db.commit()
     await db.refresh(tender)
     return tender
+
+
+async def _notify_requester(
+    db: AsyncSession, tender: Tender, notification_type: NotificationType, message: str
+) -> None:
+    """Tell the employee who raised this tender how the manager decided.
+
+    Addressed to the person, not the role — an employee holds no role mail of
+    their own, and the decision on their request is nobody else's business.
+    Only employees get one: procurement already hears about every tender
+    through the role-addressed copy alongside this, so a procurement-raised
+    tender would otherwise notify them twice.
+    """
+    if not tender.created_by:
+        return
+    creator = await db.get(User, tender.created_by)
+    if not creator or creator.role != UserRole.employee:
+        return
+    db.add(
+        Notification(
+            type=notification_type,
+            tender_id=tender.id,
+            message=message,
+            user_id=creator.id,
+        )
+    )
 
 
 # ------------------------------------------- manager approval of the tender --
@@ -152,6 +222,12 @@ async def manager_approve_tender(
             message=f"{tender.serial} approved and now open for vendor submissions",
             for_role=UserRole.procurement,
         )
+    )
+    await _notify_requester(
+        db,
+        tender,
+        NotificationType.manager_approved,
+        f"Your request {tender.serial} was approved and is now open to vendors",
     )
     await log_audit(db, "Tender Approved", f"{tender.serial} opened for submissions", user.name)
     await db.commit()
@@ -194,20 +270,58 @@ async def manager_reject_tender(
             for_role=UserRole.procurement,
         )
     )
+    await _notify_requester(
+        db,
+        tender,
+        NotificationType.changes_requested,
+        f"Your request {tender.serial} needs changes: {payload.reason}",
+    )
     await log_audit(db, "Tender Rejected", f"{tender.serial} - {payload.reason}", user.name)
     await db.commit()
     await db.refresh(tender)
     return tender
 
 
-@router.post("/{tender_id}/resubmit", response_model=TenderOut)
-async def resubmit_tender(
-    tender_id: uuid.UUID, user: User = Depends(CAN_MANAGE), db: AsyncSession = Depends(get_db)
-) -> Tender:
-    """Puts a rejected tender back in front of the manager after edits."""
+# Statuses in which a request still belongs to the person who raised it. Once a
+# manager opens it, vendors start bidding against what it says — editing then
+# would move the goalposts under offers already in flight.
+EMPLOYEE_EDITABLE = (TenderStatus.pending_approval, TenderStatus.rejected)
+
+
+async def _load_for_edit(tender_id: uuid.UUID, user: User, db: AsyncSession) -> Tender:
+    """Fetch a tender the caller is allowed to change, or raise.
+
+    Admin and procurement may edit any tender at any stage. An employee gets a
+    404 rather than a 403 for someone else's request: they have no company-wide
+    list, so confirming a tender exists would tell them something they can't
+    otherwise learn.
+    """
     tender = await db.get(Tender, tender_id)
     if not tender:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Tender not found")
+    if user.role.value in ("admin", "procurement"):
+        return tender
+    if tender.created_by != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Tender not found")
+    if tender.status not in EMPLOYEE_EDITABLE:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            f"This request is {tender.status.value} and can no longer be changed. "
+            "Contact procurement if it needs amending.",
+        )
+    return tender
+
+
+@router.post("/{tender_id}/resubmit", response_model=TenderOut)
+async def resubmit_tender(
+    tender_id: uuid.UUID, user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> Tender:
+    """Puts a rejected tender back in front of the manager after edits.
+
+    The employee who raised it can do this for their own request; procurement
+    can do it for anyone's.
+    """
+    tender = await _load_for_edit(tender_id, user, db)
     if tender.status != TenderStatus.rejected:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
@@ -235,12 +349,10 @@ async def resubmit_tender(
 async def update_tender(
     tender_id: uuid.UUID,
     payload: TenderUpdate,
-    user: User = Depends(CAN_MANAGE),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> Tender:
-    tender = await db.get(Tender, tender_id)
-    if not tender:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Tender not found")
+    tender = await _load_for_edit(tender_id, user, db)
 
     tender.name = payload.name
     tender.description = payload.description

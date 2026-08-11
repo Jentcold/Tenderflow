@@ -13,8 +13,18 @@ from app.models.notification import Notification, NotificationType
 from app.models.submission import Submission
 from app.models.tender import Tender, TenderStatus
 from app.models.user import User, UserRole
-from app.schemas.evaluation import EvaluationSave, RankedSubmissionOut, RejectionReason
-from app.services.email_service import dispatch_emails, send_award_emails
+from app.schemas.evaluation import (
+    AwardDecision,
+    AwardReassignment,
+    EvaluationSave,
+    RankedSubmissionOut,
+    RejectionReason,
+)
+from app.services.email_service import (
+    dispatch_emails,
+    send_award_emails,
+    send_reassignment_emails,
+)
 from app.services.evaluation_service import weighted_total
 
 # Staff-only. Vendors are authenticated users too, so gating on
@@ -216,9 +226,14 @@ async def submit_for_award(
 async def supply_chain_approve(
     tender_id: uuid.UUID,
     background: BackgroundTasks,
+    payload: AwardDecision | None = None,
     user: User = Depends(require_roles("admin", "supply_chain")),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
+    """The award decision. Supply chain picks the winner; procurement's score
+    ranks the bids but doesn't bind the choice, so any scored submission is
+    eligible. Body is optional — no `submission_id` awards the top-ranked bid.
+    """
     tender = await _get_tender_or_404(db, tender_id)
     if not tender.evaluation_submitted:
         raise HTTPException(
@@ -230,7 +245,30 @@ async def supply_chain_approve(
     if not evaluated:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No evaluated submissions to award")
 
-    top = evaluated[0]
+    winner = evaluated[0]
+    if payload and payload.submission_id:
+        winner = next((r for r in evaluated if r.id == payload.submission_id), None)
+        if winner is None:
+            # Unscored is a different mistake from wrong-tender, and the fix
+            # differs too: one is procurement's to finish, the other is a bad id.
+            if any(r.id == payload.submission_id for r in rows):
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST,
+                    "That submission has not been scored, so it can't be awarded. "
+                    "Ask Procurement to evaluate it first.",
+                )
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND, "That submission is not on this tender"
+            )
+
+    # 1-based position in the ranking, so the audit trail says whether the
+    # decision followed the scores or departed from them.
+    rank = evaluated.index(winner) + 1
+    reason = (payload.reason or "").strip() if payload else ""
+    note = "" if rank == 1 else f" (ranked #{rank} of {len(evaluated)})"
+    if reason:
+        note += f" — {reason}"
+
     submissions = (
         await db.execute(select(Submission).where(Submission.tender_id == tender.id))
     ).scalars().all()
@@ -239,23 +277,28 @@ async def supply_chain_approve(
     tender.supply_chain_rejected = False
     tender.supply_chain_reviewed_at = server_now()
     tender.supply_chain_reviewed_by = user.id
-    tender.awarded_vendor_submission_id = top.id
-    tender.awarded_vendor_name = top.company_name
-    tender.awarded_amount = top.total_amount
-    tender.awarded_email = top.email
+    tender.awarded_vendor_submission_id = winner.id
+    tender.awarded_vendor_name = winner.company_name
+    tender.awarded_amount = winner.total_amount
+    tender.awarded_email = winner.email
     tender.status = TenderStatus.awarded
 
     db.add(
         Notification(
             type=NotificationType.tender_awarded,
             tender_id=tender.id,
-            message=f"Tender {tender.serial} awarded to {top.company_name} for {tender.currency} {top.total_amount:,.2f}",
+            message=(
+                f"Tender {tender.serial} awarded to {winner.company_name} "
+                f"for {tender.currency} {winner.total_amount:,.2f}{note}"
+            ),
             for_role=UserRole.finance,
             details={
-                "vendor": top.company_name,
-                "amount": top.total_amount,
+                "vendor": winner.company_name,
+                "amount": winner.total_amount,
                 "currency": tender.currency,
-                "email": top.email,
+                "email": winner.email,
+                "rank": rank,
+                "reason": reason or None,
             },
         )
     )
@@ -266,7 +309,8 @@ async def supply_chain_approve(
     await log_audit(
         db,
         "Tender Awarded",
-        f"{tender.serial} awarded to {top.company_name} for {tender.currency} {top.total_amount:,.2f}",
+        f"{tender.serial} awarded to {winner.company_name} "
+        f"for {tender.currency} {winner.total_amount:,.2f}{note}",
         user.name,
     )
     await db.commit()
@@ -277,7 +321,100 @@ async def supply_chain_approve(
 
     return {
         "detail": f"Tender awarded, {len(queued)} vendor email(s) queued",
-        "awarded_vendor": top.company_name,
+        "awarded_vendor": winner.company_name,
+        "rank": rank,
+    }
+
+
+@router.post("/tenders/{tender_id}/reassign-award")
+async def reassign_award(
+    tender_id: uuid.UUID,
+    payload: AwardReassignment,
+    background: BackgroundTasks,
+    user: User = Depends(require_roles("admin", "supply_chain")),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Withdraw a live award and give it to another vendor.
+
+    For when the winner can't actually deliver. The tender stays `awarded` — it
+    was never un-awarded, the contract just moved — and only the two vendors
+    whose position changed are emailed.
+    """
+    tender = await _get_tender_or_404(db, tender_id)
+    if tender.status != TenderStatus.awarded or not tender.awarded_vendor_submission_id:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            "This tender has no award to reassign. Award it first.",
+        )
+    if not payload.reason.strip():
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Please say why the award is being moved")
+
+    previous_id = tender.awarded_vendor_submission_id
+    if payload.submission_id == previous_id:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "That vendor already holds this award"
+        )
+
+    rows = await _build_ranked_list(db, tender)
+    evaluated = [r for r in rows if r.score is not None]
+    replacement_row = next((r for r in evaluated if r.id == payload.submission_id), None)
+    if replacement_row is None:
+        if any(r.id == payload.submission_id for r in rows):
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                "That submission has not been scored, so it can't be awarded. "
+                "Ask Procurement to evaluate it first.",
+            )
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "That submission is not on this tender")
+
+    previous = await db.get(Submission, previous_id)
+    replacement = await db.get(Submission, replacement_row.id)
+    if previous is None:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, "The awarded submission no longer exists"
+        )
+
+    previous_name = previous.company_name
+    tender.awarded_vendor_submission_id = replacement.id
+    tender.awarded_vendor_name = replacement.company_name
+    tender.awarded_amount = float(replacement.total_amount)
+    tender.awarded_email = replacement.email
+    tender.supply_chain_reviewed_at = server_now()
+    tender.supply_chain_reviewed_by = user.id
+
+    detail = (
+        f"{tender.serial} award moved from {previous_name} to {replacement.company_name} "
+        f"for {tender.currency} {tender.awarded_amount:,.2f} — {payload.reason.strip()}"
+    )
+    db.add(
+        Notification(
+            type=NotificationType.tender_awarded,
+            tender_id=tender.id,
+            message=detail,
+            for_role=UserRole.finance,
+            details={
+                "vendor": replacement.company_name,
+                "previous_vendor": previous_name,
+                "amount": tender.awarded_amount,
+                "currency": tender.currency,
+                "email": replacement.email,
+                "reason": payload.reason.strip(),
+            },
+        )
+    )
+
+    scores_by_submission = {r.id: r.score for r in rows}
+    queued = await send_reassignment_emails(db, tender, previous, replacement, scores_by_submission)
+
+    await log_audit(db, "Award Reassigned", detail, user.name)
+    await db.commit()
+
+    background.add_task(dispatch_emails, [e.id for e in queued])
+
+    return {
+        "detail": f"Award moved to {replacement.company_name}, {len(queued)} email(s) queued",
+        "previous_vendor": previous_name,
+        "awarded_vendor": replacement.company_name,
     }
 
 

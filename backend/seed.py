@@ -53,6 +53,20 @@ DEFAULT_TEMPLATES = {
             "Best regards,\nTenderFlow Procurement Team"
         ),
     },
+    EmailType.award_revoked: {
+        "subject": "Award Withdrawn - {tender_serial}",
+        "body": (
+            "Dear {vendor_contact},\n\n"
+            "We are writing regarding {tender_name} ({tender_serial}), which was "
+            "previously awarded to {vendor_company}.\n\n"
+            "That award has been withdrawn and the tender reassigned to another "
+            "vendor. Our procurement team will be in touch about the reasons and "
+            "any next steps.\n\n"
+            "Your Bid: {currency} {bid_amount}\n\n"
+            "We value your participation and encourage you to bid on future tenders.\n\n"
+            "Best regards,\nTenderFlow Procurement Team"
+        ),
+    },
 }
 
 

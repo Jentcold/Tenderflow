@@ -61,10 +61,16 @@ class TenderOut(BaseModel):
     supply_chain_approved: bool
     supply_chain_rejected: bool
     supply_chain_rejection_reason: str | None
+    # When the award decision was taken. Null until supply chain rules on it —
+    # the supply chain history table is the one place that dates the decision.
+    supply_chain_reviewed_at: datetime | None
 
     awarded_vendor_name: str | None
     awarded_amount: float | None
     awarded_email: str | None
+    # Which bid actually holds the award. Names and emails aren't unique enough
+    # to match a submission on, and reassigning needs to exclude the incumbent.
+    awarded_vendor_submission_id: uuid.UUID | None
 
 
 class TenderListItem(TenderOut):
@@ -76,6 +82,35 @@ class TenderListItem(TenderOut):
     """
 
     submission_count: int = 0
+    is_expired: bool = False
+
+
+class MyRequestOut(BaseModel):
+    """What the employee who raised a tender is allowed to see about it.
+
+    Narrower than TenderListItem on purpose. No `submission_count`, so they
+    can't read off how much vendor interest their request drew, and nothing
+    from the award — who won and for how much is procurement's business, not
+    the requester's. What's left is their own request back, its status, and
+    `manager_feedback` so a rejection says why.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    serial: str
+    name: str
+    description: str
+    deadline_date: date
+    deadline_time: time
+    currency: str
+    category: Category
+    status: TenderStatus
+    department_id: uuid.UUID | None
+    required_docs: list[str]
+    scoring_criteria: list[dict]
+    created_at: datetime
+    manager_feedback: str | None
     is_expired: bool = False
 
 

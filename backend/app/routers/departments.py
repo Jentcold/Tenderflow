@@ -2,14 +2,16 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.deps import require_staff
+from app.core.deps import require_internal
 from app.database import get_db
 from app.models.department import Department
 from app.schemas.tender import DepartmentOut
 
-# Staff-only. Vendors are authenticated users too, so gating on
-# get_current_user alone would have let them read this router.
-router = APIRouter(prefix="/departments", tags=["departments"], dependencies=[Depends(require_staff)])
+# Internal-only. Vendors are authenticated users too, so gating on
+# get_current_user alone would have let them read this router. Employees are
+# included: the department list is just the company's own org chart, and their
+# request form has to offer it.
+router = APIRouter(prefix="/departments", tags=["departments"], dependencies=[Depends(require_internal)])
 
 
 @router.get("", response_model=list[DepartmentOut])

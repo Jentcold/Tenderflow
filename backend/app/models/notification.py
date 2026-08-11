@@ -1,7 +1,7 @@
 import enum
 import uuid
 
-from sqlalchemy import JSON, ForeignKey, Text
+from sqlalchemy import JSON, Enum, ForeignKey, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -33,7 +33,12 @@ class Notification(Base, UUIDPKMixin, TimestampMixin):
         ForeignKey("users.id", ondelete="CASCADE"), 
         index=True
     )
-    for_role: Mapped[UserRole | None] = mapped_column(index=True)
+    # Named explicitly so this shares `user_role` with users.role. Left to
+    # infer, SQLAlchemy names it `userrole` and you get a second copy of the
+    # same enum that no label migration ever reaches (see b8f31d0c5e42).
+    for_role: Mapped[UserRole | None] = mapped_column(
+        Enum(UserRole, name="user_role"), index=True
+    )
 
     message: Mapped[str] = mapped_column(Text)
     read: Mapped[bool] = mapped_column(default=False)

@@ -19,8 +19,19 @@ class MailNotConfigured(RuntimeError):
 def build_message(to_email: str, subject: str, body: str) -> EmailMessage:
     message = EmailMessage()
     message["From"] = formataddr((settings.MAIL_FROM_NAME, settings.MAIL_FROM))
-    message["To"] = to_email
-    message["Subject"] = subject
+
+    redirect = settings.MAIL_REDIRECT_TO.strip()
+    if redirect:
+        # Whose mail this was stays visible in three places, because the whole
+        # danger of a redirect is forgetting it is on.
+        message["To"] = redirect
+        message["X-Original-To"] = to_email
+        message["Subject"] = f"[TEST -> {to_email}] {subject}"
+        body = f"--- Test redirect. In production this would go to {to_email}. ---\n\n{body}"
+    else:
+        message["To"] = to_email
+        message["Subject"] = subject
+
     message.set_content(body)
     return message
 

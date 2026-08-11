@@ -14,6 +14,9 @@ class UserRole(str, enum.Enum):
     supply_chain = "supply_chain"
     finance = "finance"
     vendor = "vendor"
+    # A company employee who raises a tender request and waits on the manager's
+    # decision. No back-office function: they never see bids, vendors or scores.
+    employee = "employee"
 
 
 class UserStatus(str, enum.Enum):

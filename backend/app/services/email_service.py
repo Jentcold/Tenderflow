@@ -28,6 +28,48 @@ async def get_templates(db: AsyncSession) -> dict[EmailType, EmailTemplate]:
     return {t.type: t for t in result.scalars().all()}
 
 
+def _queue_email(
+    db: AsyncSession,
+    template: EmailTemplate,
+    tender: Tender,
+    sub: Submission,
+    email_type: EmailType,
+    score: float | None,
+) -> SentEmail:
+    """Render one template against one submission and stage the row."""
+    replacements = {
+        "{vendor_company}": sub.company_name,
+        "{vendor_contact}": sub.contact_name,
+        "{vendor_email}": sub.email,
+        "{tender_name}": tender.name,
+        "{tender_serial}": tender.serial,
+        "{tender_category}": tender.category.value,
+        "{currency}": tender.currency,
+        "{awarded_amount}": f"{tender.awarded_amount:,.2f}" if tender.awarded_amount else "0",
+        "{bid_amount}": f"{sub.total_amount:,.2f}",
+        # Placeholder token kept as-is: it's baked into template bodies
+        # already stored in email_templates, renaming it would silently
+        # stop substituting in anything procurement has saved.
+        "{combined_score}": f"{score:.1f}" if score is not None else "N/A",
+    }
+    subject, body = render_template(template.subject, template.body, replacements)
+
+    record = SentEmail(
+        tender_id=tender.id,
+        tender_serial=tender.serial,
+        tender_name=tender.name,
+        submission_id=sub.id,
+        vendor_company=sub.company_name,
+        recipient_email=sub.email,
+        type=email_type,
+        subject=subject,
+        body=body,
+        status=EmailStatus.queued if settings.mail_configured else EmailStatus.simulated,
+    )
+    db.add(record)
+    return record
+
+
 async def send_award_emails(
     db: AsyncSession,
     tender: Tender,
@@ -36,51 +78,52 @@ async def send_award_emails(
 ) -> list[SentEmail]:
     """Builds a SentEmail row per vendor (winner template for the awarded one, loser for the rest).
 
+    Every submission on the tender gets one, including bids procurement never
+    scored — an unscored vendor still bid and is still owed an answer.
+
     Rows are only queued here — nothing touches the network inside the request.
     Hand the returned ids to `dispatch_emails` as a background task so a slow or
     unreachable mail server can't fail (or stall) the award itself.
     """
     templates = await get_templates(db)
-    sent: list[SentEmail] = []
-
-    for sub in submissions:
-        is_winner = sub.id == tender.awarded_vendor_submission_id
-        template = templates[EmailType.winner if is_winner else EmailType.loser]
-        score = scores_by_submission.get(sub.id)
-
-        replacements = {
-            "{vendor_company}": sub.company_name,
-            "{vendor_contact}": sub.contact_name,
-            "{vendor_email}": sub.email,
-            "{tender_name}": tender.name,
-            "{tender_serial}": tender.serial,
-            "{tender_category}": tender.category.value,
-            "{currency}": tender.currency,
-            "{awarded_amount}": f"{tender.awarded_amount:,.2f}" if tender.awarded_amount else "0",
-            "{bid_amount}": f"{sub.total_amount:,.2f}",
-            # Placeholder token kept as-is: it's baked into template bodies
-            # already stored in email_templates, renaming it would silently
-            # stop substituting in anything procurement has saved.
-            "{combined_score}": f"{score:.1f}" if score is not None else "N/A",
-        }
-        subject, body = render_template(template.subject, template.body, replacements)
-
-        record = SentEmail(
-            tender_id=tender.id,
-            tender_serial=tender.serial,
-            tender_name=tender.name,
-            submission_id=sub.id,
-            vendor_company=sub.company_name,
-            recipient_email=sub.email,
-            type=EmailType.winner if is_winner else EmailType.loser,
-            subject=subject,
-            body=body,
-            status=EmailStatus.queued if settings.mail_configured else EmailStatus.simulated,
+    return [
+        _queue_email(
+            db,
+            templates[EmailType.winner if sub.id == tender.awarded_vendor_submission_id else EmailType.loser],
+            tender,
+            sub,
+            EmailType.winner if sub.id == tender.awarded_vendor_submission_id else EmailType.loser,
+            scores_by_submission.get(sub.id),
         )
-        db.add(record)
-        sent.append(record)
+        for sub in submissions
+    ]
 
-    return sent
+
+async def send_reassignment_emails(
+    db: AsyncSession,
+    tender: Tender,
+    previous: Submission,
+    replacement: Submission,
+    scores_by_submission: dict,
+) -> list[SentEmail]:
+    """Two emails only: the withdrawal to the vendor who lost the award, and the
+    win to the vendor who gained it.
+
+    The other bidders were already told they lost when the tender was first
+    awarded, and nothing about that has changed — mailing them again would just
+    reopen a decision they've already been given.
+    """
+    templates = await get_templates(db)
+    return [
+        _queue_email(
+            db, templates[EmailType.award_revoked], tender, previous,
+            EmailType.award_revoked, scores_by_submission.get(previous.id),
+        ),
+        _queue_email(
+            db, templates[EmailType.winner], tender, replacement,
+            EmailType.winner, scores_by_submission.get(replacement.id),
+        ),
+    ]
 
 
 # ------------------------------------------------------------------ delivery

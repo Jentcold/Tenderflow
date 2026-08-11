@@ -58,6 +58,13 @@ class Settings(BaseSettings):
     MAIL_FROM_NAME: str = "TenderFlow"
     MAIL_MAX_ATTEMPTS: int = 3
 
+    # Testing safety valve. Set it and EVERY outbound email goes to this address
+    # instead of the vendor's, with the intended recipient kept in the subject
+    # and an X-Original-To header. The log still records the real recipient, so
+    # what you see in the UI is what production would send. MUST be empty in
+    # production or no vendor ever hears back.
+    MAIL_REDIRECT_TO: str = ""
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]

@@ -1,6 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from pydantic import EmailStr
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -256,7 +257,10 @@ async def submit_offer(
     tender_id: uuid.UUID,
     company_name: str = Form(...),
     contact_name: str = Form(...),
-    email: str = Form(...),
+    # EmailStr, not str: SubmissionOut.email is EmailStr, so an address pydantic
+    # rejects used to commit the bid and then blow up serialising the response —
+    # a 500 for the vendor and a row nobody knows is there. Validate on the way in.
+    email: EmailStr = Form(...),
     phone: str = Form(...),
     total_amount: float = Form(...),
     notes: str | None = Form(default=None),

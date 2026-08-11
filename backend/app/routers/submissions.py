@@ -9,7 +9,7 @@ from app.core.audit import log_audit
 from app.core.deps import require_roles, require_staff
 from app.core.pagination import Page, Pagination, paginate
 from app.database import get_db
-from app.models.submission import Submission
+from app.models.submission import Submission, SubmissionStatus
 from app.models.user import User
 from app.schemas.submission import SubmissionOut, SubmissionStatusUpdate
 from app.services.storage_service import UPLOAD_DIR
@@ -23,6 +23,7 @@ router = APIRouter(prefix="/submissions", tags=["submissions"], dependencies=[De
 async def list_submissions(
     tender_id: uuid.UUID | None = Query(default=None),
     vendor_id: uuid.UUID | None = Query(default=None, description="Only bids from this registered vendor"),
+    status_filter: SubmissionStatus | None = Query(default=None, alias="status"),
     page: Pagination = Depends(),
     db: AsyncSession = Depends(get_db),
 ) -> Page[SubmissionOut]:
@@ -31,6 +32,8 @@ async def list_submissions(
         stmt = stmt.where(Submission.tender_id == tender_id)
     if vendor_id:
         stmt = stmt.where(Submission.vendor_id == vendor_id)
+    if status_filter is not None:
+        stmt = stmt.where(Submission.status == status_filter)
 
     submissions, total = await paginate(db, stmt, page)
     return Page[SubmissionOut](

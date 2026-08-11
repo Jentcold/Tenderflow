@@ -43,3 +43,27 @@ class RankedSubmissionOut(BaseModel):
 
 class RejectionReason(BaseModel):
     reason: str
+
+
+class AwardDecision(BaseModel):
+    """Which bid supply chain is awarding.
+
+    The score ranks the bids, it doesn't pick the winner — supply chain can
+    award any scored submission and give their reason. An omitted
+    `submission_id` means the top-ranked one, which is the ordinary case.
+    """
+
+    submission_id: uuid.UUID | None = None
+    reason: str | None = None
+
+
+class AwardReassignment(BaseModel):
+    """Moving a live award from one vendor to another.
+
+    Both fields are required, unlike AwardDecision: there is no sensible default
+    winner once one is already in place, and withdrawing a contract someone was
+    told they had is not something to record without a reason.
+    """
+
+    submission_id: uuid.UUID
+    reason: str

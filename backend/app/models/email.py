@@ -12,6 +12,10 @@ from app.models.base import UUIDPKMixin, TimestampMixin
 class EmailType(str, enum.Enum):
     winner = "winner"
     loser = "loser"
+    # Sent to a vendor whose award was withdrawn and given to someone else.
+    # Deliberately not the loser template: that one tells a vendor they were
+    # never selected, which is not what happened to them.
+    award_revoked = "award_revoked"
 
 
 class EmailStatus(str, enum.Enum):
