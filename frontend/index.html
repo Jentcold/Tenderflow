@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TenderFlow - Procurement Management System</title>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="style.css" rel="stylesheet">
+</head>
+<body>
+    <div class="toast-container" id="toastContainer"></div>
+
+    <!-- Login Page -->
+    <div class="login-container" id="loginPage">
+        <div class="login-box">
+            <div class="login-logo">
+                <i class="fas fa-file-contract"></i>
+                <h1>TenderFlow</h1>
+                <p>Procurement Management System</p>
+            </div>
+            <form id="loginForm">
+                <div class="form-group">
+                    <label for="loginEmail">Username or Email</label>
+                    <input type="text" id="loginEmail" class="form-control" placeholder="admin" autocomplete="username" required>
+                    <div class="form-error" id="emailError">Invalid username</div>
+                </div>
+                <div class="form-group">
+                    <label for="loginPassword">Password</label>
+                    <input type="password" id="loginPassword" class="form-control" placeholder="Enter your password" autocomplete="current-password" required>
+                    <div class="form-error" id="passwordError">Invalid password</div>
+                </div>
+                <button type="submit" class="btn btn-primary" id="loginSubmitBtn">
+                    <i class="fas fa-sign-in-alt"></i>
+                    Sign In
+                </button>
+            </form>
+            <div class="login-alt">
+                <span>Supplying to us?</span>
+                <button type="button" class="link-button" onclick="openVendorRegisterModal()">Register as a vendor</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Application -->
+    <div class="app-container" id="appContainer">
+        <div class="sidebar-overlay" id="sidebarOverlay"></div>
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <div class="sidebar-logo">
+                    <i class="fas fa-file-contract"></i>
+                    <span>TenderFlow</span>
+                </div>
+            </div>
+            <nav class="sidebar-nav" id="sidebarNav"></nav>
+            <div class="sidebar-footer">
+                <div class="user-info">
+                    <div class="user-avatar" id="userAvatar">AD</div>
+                    <div class="user-details">
+                        <div class="user-name" id="userName">Admin User</div>
+                        <div class="user-role" id="userRoleDisplay">System Admin</div>
+                    </div>
+                    <button class="action-btn" onclick="logout()" title="Logout">
+                        <i class="fas fa-sign-out-alt"></i>
+                    </button>
+                </div>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <header class="topbar">
+                <div class="topbar-left">
+                    <button class="menu-toggle" id="menuToggle"><i class="fas fa-bars"></i></button>
+                    <h1 class="page-title" id="pageTitle">Dashboard</h1>
+                </div>
+                <div class="topbar-right">
+                    <div class="notification-wrapper">
+                        <button class="topbar-btn" title="Notifications" onclick="toggleNotificationDropdown()" id="notificationBtn">
+                            <i class="fas fa-bell"></i>
+                            <span class="notification-badge" id="notificationBadge"></span>
+                        </button>
+                        <div class="notification-dropdown" id="notificationDropdown"></div>
+                    </div>
+                    <button class="topbar-btn" onclick="logout()" title="Logout">
+                        <i class="fas fa-sign-out-alt"></i>
+                    </button>
+                </div>
+            </header>
+            <div class="content-area" id="contentArea"></div>
+        </main>
+    </div>
+
+    <!-- Vendor Submission Page -->
+    <div class="vendor-container hidden" id="vendorPage"></div>
+
+    <!-- Create Tender Modal -->
+    <div class="modal-overlay" id="createTenderModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 class="modal-title" id="tenderModalTitle">Create New Tender</h2>
+                <button class="modal-close" onclick="closeModal('createTenderModal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="createTenderForm">
+                    <input type="hidden" id="editTenderId">
+                    <div class="form-group full-width">
+                        <label>Tender Name *</label>
+                        <input type="text" class="form-control" id="tenderName" required placeholder="Enter tender name">
+                    </div>
+                    <div class="form-group full-width">
+                        <label>Description *</label>
+                        <textarea class="form-control" id="tenderDescription" required placeholder="Enter detailed description"></textarea>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Deadline Date *</label>
+                            <input type="date" class="form-control" id="tenderDeadline" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Deadline Time *</label>
+                            <input type="time" class="form-control" id="tenderDeadlineTime" required>
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Currency *</label>
+                            <select class="form-control" id="tenderCurrency" required>
+                                <option value="USD">USD - US Dollar</option>
+                                <option value="EUR">EUR - Euro</option>
+                                <option value="GBP">GBP - British Pound</option>
+                                <option value="SAR">SAR - Saudi Riyal</option>
+                                <option value="AED">AED - UAE Dirham</option>
+                                <option value="EGP">EGP - Egyptian Pound</option>
+                                <option value="KWD">KWD - Kuwaiti Dinar</option>
+                                <option value="QAR">QAR - Qatari Riyal</option>
+                                <option value="BHD">BHD - Bahraini Dinar</option>
+                                <option value="OMR">OMR - Omani Rial</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Category</label>
+                            <select class="form-control" id="tenderCategory">
+                                <option value="goods">Goods</option>
+                                <option value="services">Services</option>
+                                <option value="works">Works</option>
+                                <option value="consulting">Consulting</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-group full-width">
+                        <label>Requesting Department *</label>
+                        <select class="form-control" id="tenderDepartment" required>
+                            <option value="">Select Department</option>
+                        </select>
+                        <small style="color: var(--text-muted); font-size: 12px;">The department requesting this tender</small>
+                    </div>
+                    <div class="form-group full-width">
+                        <label>Required Documents</label>
+                        <input type="text" class="form-control" id="requiredDocs" placeholder="e.g., Company Profile, Financial Statement">
+                        <small style="color: var(--text-muted); font-size: 12px;">Separate with commas</small>
+                    </div>
+                    <div class="form-group full-width">
+                        <label>Scoring Criteria</label>
+                        <div id="scoringCriteria" class="criteria-list">
+                            <div class="criteria-item">
+                                <input type="text" class="form-control" placeholder="Criteria name" value="Price">
+                                <input type="number" class="form-control criteria-weight" placeholder="%" value="40" min="0" max="100">
+                                <button type="button" class="action-btn danger" onclick="removeCriteria(this)"><i class="fas fa-trash"></i></button>
+                            </div>
+                            <div class="criteria-item">
+                                <input type="text" class="form-control" placeholder="Criteria name" value="Technical">
+                                <input type="number" class="form-control criteria-weight" placeholder="%" value="30" min="0" max="100">
+                                <button type="button" class="action-btn danger" onclick="removeCriteria(this)"><i class="fas fa-trash"></i></button>
+                            </div>
+                            <div class="criteria-item">
+                                <input type="text" class="form-control" placeholder="Criteria name" value="Delivery">
+                                <input type="number" class="form-control criteria-weight" placeholder="%" value="20" min="0" max="100">
+                                <button type="button" class="action-btn danger" onclick="removeCriteria(this)"><i class="fas fa-trash"></i></button>
+                            </div>
+                            <div class="criteria-item">
+                                <input type="text" class="form-control" placeholder="Criteria name" value="Compliance">
+                                <input type="number" class="form-control criteria-weight" placeholder="%" value="10" min="0" max="100">
+                                <button type="button" class="action-btn danger" onclick="removeCriteria(this)"><i class="fas fa-trash"></i></button>
+                            </div>
+                        </div>
+                        <button type="button" class="btn btn-secondary btn-sm" style="margin-top: 12px;" onclick="addCriteria()">
+                            <i class="fas fa-plus"></i> Add Criteria
+                        </button>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('createTenderModal')">Cancel</button>
+                <button class="btn btn-accent" id="tenderModalSubmitBtn" onclick="createTender()"><i class="fas fa-plus"></i> Create Tender</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- View Tender Modal -->
+    <div class="modal-overlay" id="viewTenderModal">
+        <div class="modal" style="max-width: 700px;">
+            <div class="modal-header">
+                <h2 class="modal-title">Tender Details</h2>
+                <button class="modal-close" onclick="closeModal('viewTenderModal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body" id="viewTenderContent"></div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('viewTenderModal')">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Create User Modal -->
+    <div class="modal-overlay" id="createUserModal">
+        <div class="modal" style="max-width: 500px;">
+            <div class="modal-header">
+                <h2 class="modal-title" id="userModalTitle">Create New User</h2>
+                <button class="modal-close" onclick="closeModal('createUserModal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="createUserForm">
+                    <input type="hidden" id="editUserId">
+                    <div class="form-group">
+                        <label>Full Name *</label>
+                        <input type="text" class="form-control" id="userFullName" required placeholder="Enter full name">
+                    </div>
+                    <div class="form-group">
+                        <label>Username *</label>
+                        <input type="text" class="form-control" id="userUsername" required placeholder="Enter username">
+                    </div>
+                    <div class="form-group">
+                        <label>Email *</label>
+                        <input type="email" class="form-control" id="userEmail" required placeholder="Enter email address">
+                    </div>
+                    <div class="form-group">
+                        <label>Password *</label>
+                        <input type="password" class="form-control" id="userPassword" placeholder="Enter password">
+                        <small style="color: var(--text-muted); font-size: 12px;">Leave blank to keep existing password (when editing). Minimum 6 characters.</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Role *</label>
+                        <select class="form-control" id="userRole" required>
+                            <option value="">Select Role</option>
+                            <option value="admin">System Admin</option>
+                            <option value="procurement">Procurement Team</option>
+                            <option value="manager">Department Manager</option>
+                            <option value="supply_chain">Supply Chain Head</option>
+                            <option value="finance">Finance Team</option>
+                            <option value="employee">Employee</option>
+                            <!-- Hidden so it can't be picked for a new account, but present so
+                                 editing a vendor has something to select. The API refuses a role
+                                 change to or from vendor either way. -->
+                            <option value="vendor" id="userRoleVendorOption" hidden>Vendor</option>
+                        </select>
+                        <small style="color: var(--text-muted); font-size: 12px;" id="userRoleHelp">An Employee can raise tender requests and track their own, nothing else. Vendors register themselves.</small>
+                    </div>
+                    <div class="form-group">
+                        <label>Status</label>
+                        <select class="form-control" id="userStatus">
+                            <option value="active">Active</option>
+                            <option value="inactive">Inactive</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('createUserModal')">Cancel</button>
+                <button class="btn btn-accent" onclick="saveUser()"><i class="fas fa-save"></i> Save User</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Vendor Registration Modal (public) -->
+    <div class="modal-overlay" id="vendorRegisterModal">
+        <div class="modal" style="max-width: 620px;">
+            <div class="modal-header">
+                <h2 class="modal-title">Register as a Vendor</h2>
+                <button class="modal-close" onclick="closeModal('vendorRegisterModal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body">
+                <form id="vendorRegisterForm">
+                    <p style="color: var(--text-secondary); margin-bottom: 20px;">
+                        One sign-up creates your login and your company profile. Your category decides which tenders you can see and bid on.
+                    </p>
+
+                    <h3 style="font-size: 14px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 12px;">Company</h3>
+                    <div class="form-group">
+                        <label>Company Name *</label>
+                        <input type="text" class="form-control" id="regCompanyName" required placeholder="Acme Supplies Ltd">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Category *</label>
+                            <select class="form-control" id="regCategory" required>
+                                <option value="goods">Goods</option>
+                                <option value="services">Services</option>
+                                <option value="works">Works</option>
+                                <option value="consulting">Consulting</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Tax ID *</label>
+                            <input type="text" class="form-control" id="regTaxId" required placeholder="Registration or tax number">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Contact Email *</label>
+                            <input type="email" class="form-control" id="regContactEmail" required placeholder="bids@acme.com">
+                        </div>
+                        <div class="form-group">
+                            <label>Contact Phone *</label>
+                            <input type="tel" class="form-control" id="regPhone" required placeholder="+20 100 000 0000">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>Address *</label>
+                        <input type="text" class="form-control" id="regAddress" required placeholder="Street, city, country">
+                    </div>
+
+                    <h3 style="font-size: 14px; text-transform: uppercase; color: var(--text-muted); margin: 24px 0 12px;">Your Login</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Your Name *</label>
+                            <input type="text" class="form-control" id="regContactName" required placeholder="Person signing in" autocomplete="name">
+                        </div>
+                        <div class="form-group">
+                            <label>Username *</label>
+                            <input type="text" class="form-control" id="regUsername" required placeholder="acme" autocomplete="username">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label>Account Email *</label>
+                            <input type="email" class="form-control" id="regEmail" required placeholder="you@acme.com" autocomplete="email">
+                        </div>
+                        <div class="form-group">
+                            <label>Password *</label>
+                            <input type="password" class="form-control" id="regPassword" required minlength="6" placeholder="At least 6 characters" autocomplete="new-password">
+                        </div>
+                    </div>
+
+                    <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px;">
+                        <button type="button" class="btn btn-secondary" onclick="closeModal('vendorRegisterModal')">Cancel</button>
+                        <button type="submit" class="btn btn-accent" id="vendorRegisterSubmitBtn"><i class="fas fa-user-plus"></i> Create Account</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Submission Detail Modal -->
+    <div class="modal-overlay" id="submissionDetailModal">
+        <div class="modal" style="max-width: 700px;">
+            <div class="modal-header">
+                <h2 class="modal-title">Submission Details</h2>
+                <button class="modal-close" onclick="closeModal('submissionDetailModal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body" id="submissionDetailContent"></div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('submissionDetailModal')">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Generic confirm-with-reason modal (used for reject flows) -->
+    <div class="modal-overlay" id="reasonModal">
+        <div class="modal" style="max-width: 500px;">
+            <div class="modal-header">
+                <h2 class="modal-title" id="reasonModalTitle">Provide Feedback</h2>
+                <button class="modal-close" onclick="closeModal('reasonModal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body">
+                <p style="margin-bottom: 16px; color: var(--text-secondary);" id="reasonModalDescription"></p>
+                <div class="form-group">
+                    <label id="reasonModalLabel">Reason *</label>
+                    <textarea class="form-control" id="reasonModalInput" style="min-height: 120px;"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('reasonModal')">Cancel</button>
+                <button class="btn btn-danger" id="reasonModalSubmitBtn"><i class="fas fa-paper-plane"></i> Send</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Generic confirm dialog -->
+    <div class="modal-overlay" id="confirmModal">
+        <div class="modal" style="max-width: 460px;">
+            <div class="modal-header">
+                <h2 class="modal-title" id="confirmModalTitle">Confirm</h2>
+                <button class="modal-close" onclick="closeModal('confirmModal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body">
+                <div id="confirmModalBody"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('confirmModal')">Cancel</button>
+                <button class="btn btn-accent" id="confirmModalSubmitBtn">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Extend Deadline Modal -->
+    <div class="modal-overlay" id="extendDeadlineModal">
+        <div class="modal" style="max-width: 450px;">
+            <div class="modal-header">
+                <h2 class="modal-title">Extend Deadline</h2>
+                <button class="modal-close" onclick="closeModal('extendDeadlineModal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body">
+                <p style="margin-bottom: 16px; color: var(--text-secondary);" id="extendDeadlineCurrent"></p>
+                <div class="form-group">
+                    <label>New Deadline Date *</label>
+                    <input type="date" class="form-control" id="newDeadlineDate" required>
+                </div>
+                <div class="form-group">
+                    <label>New Deadline Time *</label>
+                    <input type="time" class="form-control" id="newDeadlineTime" required>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('extendDeadlineModal')">Cancel</button>
+                <button class="btn btn-accent" id="extendDeadlineSubmitBtn"><i class="fas fa-calendar-plus"></i> Extend</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Email Preview Modal -->
+    <div class="modal-overlay" id="emailPreviewModal">
+        <div class="modal" style="max-width: 700px;">
+            <div class="modal-header">
+                <h2 class="modal-title"><i class="fas fa-eye" style="margin-right: 8px;"></i>Email Preview</h2>
+                <button class="modal-close" onclick="closeModal('emailPreviewModal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body" id="emailPreviewContent"></div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('emailPreviewModal')">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
