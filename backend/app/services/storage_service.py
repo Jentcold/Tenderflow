@@ -6,7 +6,7 @@ from fastapi import HTTPException, UploadFile, status
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+MAX_FILE_SIZE = 10 * 1024 * 1024
 ALLOWED_EXTENSIONS = {".pdf", ".doc", ".docx", ".xls", ".xlsx"}
 
 
@@ -25,5 +25,4 @@ async def save_submission_file(file: UploadFile, tender_id: uuid.UUID) -> str:
     stored_name = f"{uuid.uuid4().hex}_{file.filename}"
     (tender_dir / stored_name).write_bytes(contents)
 
-    # Path returned is what gets stored on the submission; served back via /vendor/files/{tender_id}/{stored_name}
     return f"{tender_id}/{stored_name}"

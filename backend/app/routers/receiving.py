@@ -1,29 +1,3 @@
-"""The warehouse end of the chain: what is coming, and what actually arrived.
-
-The warehouse sees one thing - purchases that cleared every approval and have
-not been checked in yet. Not tenders, not bids, not offers under review. By the
-time a shipment appears here every decision about it has been made, so there is
-nothing on this screen to decide and nothing to leak: the only question left is
-whether the right things turned up.
-
-**Two shapes of purchase reach this door, not one.** An approved offer is one,
-and an approved basket is the other, and for a while only the first showed up
-here - which meant anything bought across two vendors, or bought by hand, was
-invisible to the warehouse even though the goods still walked in. The screen
-now lists both, keyed by a `source` alongside the id. Nothing else about the
-warehouse's job changes with the source, which is why the difference goes no
-deeper than that pair.
-
-Who counts as the warehouse is a *department*, not a role. That is the rule the
-rest of the app already follows - seniority and function come from
-`departments.code`, and `UserRole` stays generic - and it is why there is no
-`warehouse` role to add. Whoever is attached to the Warehouse department can
-receive, whatever their role says.
-
-Checking a delivery in notifies supply chain and purchasing. Always, not only
-when something is wrong: "it all arrived" is the thing they are waiting to
-hear, and a channel that only ever carries bad news gets read as noise.
-"""
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -53,9 +27,6 @@ from app.schemas.receipt import (
 router = APIRouter(prefix="/receiving", tags=["receiving"])
 
 
-# --------------------------------------------------------------------- access
-
-
 async def _department_code(db: AsyncSession, user: User) -> str | None:
     if user.department_id is None:
         return None
@@ -67,12 +38,6 @@ async def _department_code(db: AsyncSession, user: User) -> str | None:
 async def require_warehouse(
     user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> User:
-    """Whoever works in the Warehouse department, plus admin.
-
-    Not `require_roles(...)`: the warehouse staff account is `role=employee`,
-    and widening that role would hand every requester in the company the
-    submissions and offers routers along with it.
-    """
     if user.role is UserRole.admin:
         return user
     if await _department_code(db, user) == WAREHOUSE_CODE:
@@ -85,12 +50,6 @@ async def require_warehouse(
 async def require_receipt_reader(
     user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> User:
-    """Who may read what the warehouse recorded.
-
-    The warehouse itself, supply chain, and purchasing - the people a problem
-    on a delivery lands on. Kept deliberately wider than `require_warehouse`:
-    the whole point of a receipt is that somebody else acts on it.
-    """
     if user.role in (UserRole.admin, UserRole.supply_chain, UserRole.procurement):
         return user
     code = await _department_code(db, user)
@@ -99,16 +58,7 @@ async def require_receipt_reader(
     raise HTTPException(status.HTTP_403_FORBIDDEN, "Insufficient permissions for this action")
 
 
-# ---------------------------------------------------------------------- reads
-
-
 def _suppliers_label(names: list[str | None]) -> str:
-    """Who is delivering, in one phrase.
-
-    A basket can span three vendors and a corner shop, and there is no honest
-    single name for that - so it says how many rather than picking whichever
-    sorted first. The per-line vendor carries the detail.
-    """
     distinct = list(dict.fromkeys(n for n in names if n))
     if not distinct:
         return "Bought by purchasing"
@@ -134,13 +84,6 @@ async def _offer_items(db: AsyncSession, offer_ids: list[uuid.UUID]) -> dict:
 
 
 async def _incoming_offers(db: AsyncSession) -> list[IncomingShipment]:
-    """Approved offers with no receipt against them yet.
-
-    `approved` is the whole filter, and it is deliberately the only one: that
-    status means supply chain signed it off, which is the moment the goods
-    become the warehouse's problem and not before. Anything earlier belongs to
-    somebody still deciding.
-    """
     received = select(GoodsReceipt.offer_id).where(GoodsReceipt.offer_id.is_not(None))
     offers = list(
         (
@@ -209,17 +152,6 @@ async def _incoming_offers(db: AsyncSession) -> list[IncomingShipment]:
 
 
 async def _incoming_baskets(db: AsyncSession) -> list[IncomingShipment]:
-    """Approved baskets with no receipt against them yet.
-
-    The warehouse never sees the basket walk the chain - draft, submitted, with
-    the purchasing manager - for the same reason it never sees an offer do it.
-    It appears at `approved` and not one step earlier.
-
-    Urgent baskets land here too, and that is the point: urgency skips the two
-    approving desks, never the door. Somebody still has to say what turned up,
-    including on the lines purchasing walked out and bought themselves - those
-    are carried in, registered, and taken on from here like everything else.
-    """
     received = select(GoodsReceipt.award_id).where(GoodsReceipt.award_id.is_not(None))
     awards = list(
         (
@@ -262,8 +194,6 @@ async def _incoming_baskets(db: AsyncSession) -> list[IncomingShipment]:
             continue
         lines = lines_by_award.get(award.id, [])
         if not lines:
-            # An empty basket cannot be approved, so this is a broken row
-            # rather than a delivery. Nothing to tick off, so nothing to show.
             continue
         out.append(
             IncomingShipment(
@@ -276,9 +206,6 @@ async def _incoming_baskets(db: AsyncSession) -> list[IncomingShipment]:
                 offer_title="Basket",
                 currency=award.currency,
                 total_amount=round(sum(line.line_total for line in lines), 2),
-                # An urgent basket is approved on submission and never reaches
-                # supply chain, so the moment it became real is when it was
-                # sent up.
                 approved_at=award.supply_chain_reviewed_at or award.submitted_at,
                 urgent=bool(getattr(tender, "urgent", False)),
                 urgent_skipped=bool(award.urgent_skipped),
@@ -304,15 +231,7 @@ async def _incoming_baskets(db: AsyncSession) -> list[IncomingShipment]:
 async def list_incoming(
     user: User = Depends(require_receipt_reader), db: AsyncSession = Depends(get_db)
 ) -> list[IncomingShipment]:
-    """Everything approved and not yet checked in, whichever shape it took.
-
-    Received shipments drop off this list by having a `goods_receipts` row,
-    not by changing status - see app/models/receipt.py for why that is a row
-    and not a flag.
-    """
     shipments = list(await _incoming_offers(db)) + list(await _incoming_baskets(db))
-    # Oldest first: the thing approved a fortnight ago and still not arrived is
-    # the one worth looking at.
     shipments.sort(key=lambda s: (s.approved_at is None, s.approved_at))
     return shipments
 
@@ -385,12 +304,6 @@ async def list_receipts(
     user: User = Depends(require_receipt_reader),
     db: AsyncSession = Depends(get_db),
 ) -> list[ReceiptOut]:
-    """Deliveries already checked in, newest first.
-
-    `problems_only` is what supply chain and purchasing actually open this on:
-    a delivery where everything arrived needs reading once, and a delivery
-    missing three lines needs chasing.
-    """
     limit = max(1, min(limit, 200))
     receipts = list(
         (
@@ -406,7 +319,6 @@ async def list_receipts(
 
 
 def _receipt_lookup(source: str, shipment_id: uuid.UUID):
-    """The one clause that says "the receipt against this purchase"."""
     if source == "basket":
         return GoodsReceipt.award_id == shipment_id
     return GoodsReceipt.offer_id == shipment_id
@@ -427,19 +339,9 @@ async def get_receipt(
     return await _receipt_out(db, receipt)
 
 
-# --------------------------------------------------------------------- writes
-
-
 async def _notify_purchasing_and_supply_chain(
     db: AsyncSession, tender: Tender, message: str
 ) -> None:
-    """Supply chain and purchasing both hear about every delivery.
-
-    Purchasing is reached twice over: `for_role=procurement` covers the buyers,
-    and the purchasing manager is addressed by user id because their role is
-    the generic `manager` - broadcasting to that role would ring every
-    department manager in the company about a delivery that isn't theirs.
-    """
     db.add(
         Notification(
             type=NotificationType.goods_received,
@@ -489,11 +391,6 @@ async def _notify_purchasing_and_supply_chain(
 async def _shipment_lines(
     db: AsyncSession, source: str, shipment_id: uuid.UUID
 ) -> tuple[Tender, dict]:
-    """The purchase's tender and its lines, keyed by the id the browser ticks.
-
-    Raises the same refusals for both shapes, so an offer and a basket that
-    aren't ready to be received fail identically.
-    """
     if source == "offer":
         offer = await db.get(Offer, shipment_id)
         if offer is None:
@@ -538,19 +435,6 @@ async def receive_shipment(
     user: User = Depends(require_warehouse),
     db: AsyncSession = Depends(get_db),
 ) -> ReceiptOut:
-    """Check a delivery in, line by line.
-
-    Every line of the purchase has to be accounted for. Not a convenience - a
-    line nobody mentioned is indistinguishable from a line nobody looked at,
-    and the difference between those two is the entire value of this record.
-    The endpoint rejects a partial list rather than defaulting the rest to
-    `ok`, which would quietly sign for goods that were never checked.
-
-    Once written it stands. There is no edit: a receipt is what somebody
-    recorded at the door at a particular moment, and a delivery note that can
-    be revised afterwards is not evidence of anything. A correction is a
-    conversation with supply chain, who can see the note that was filed.
-    """
     if source not in ("offer", "basket"):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
 
@@ -589,7 +473,6 @@ async def receive_shipment(
         notes=(payload.notes or "").strip() or None,
     )
     db.add(receipt)
-    # id is assigned on INSERT, and the lines need it as a foreign key.
     await db.flush()
 
     problems = 0
@@ -606,9 +489,6 @@ async def receive_shipment(
                 name=item.name,
                 ordered_quantity=float(item.quantity),
                 condition=line.condition,
-                # An `ok` line means "all of it arrived", so the ordered
-                # quantity is the received one and the warehouse is not asked
-                # to retype a number already on the screen.
                 received_quantity=float(item.quantity) if ok else float(line.received_quantity),
                 notes=(line.notes or "").strip() or None,
             )

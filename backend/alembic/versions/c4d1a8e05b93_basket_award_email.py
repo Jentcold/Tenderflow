@@ -1,19 +1,3 @@
-"""a separate mail for a basket award
-
-A basket can take two lines from one vendor and three from another. The
-`winner` template says "the tender is yours", which for a partial award is
-simply untrue - the vendor would deliver the whole order. `basket_award` is the
-one that names the lines they actually won.
-
-Hand-written: alembic does not diff enum values, so autogenerate produces an
-empty migration and the failure appears at runtime as `invalid input value for
-enum`.
-
-Revision ID: c4d1a8e05b93
-Revises: b6c2e93f5a71
-Create Date: 2026-08-19
-
-"""
 from typing import Sequence, Union
 
 from alembic import op
@@ -33,10 +17,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # A label can't be dropped from a Postgres enum, so the type is rebuilt.
-    # Both tables that use it move across. Rows carrying the label go first:
-    # they describe mail that the old schema has no way to talk about, and
-    # there is nothing sensible to recast them to.
     op.execute("DELETE FROM sent_emails WHERE type = 'basket_award'")
     op.execute("DELETE FROM email_templates WHERE type = 'basket_award'")
 

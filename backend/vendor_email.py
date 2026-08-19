@@ -1,17 +1,3 @@
-"""Point vendor contact emails somewhere for a demo: `python vendor_email.py`
-
-    python vendor_email.py you@example.com          # all vendors
-    python vendor_email.py you@example.com "Acme"   # just the ones matching
-    python vendor_email.py --clear "Nile"           # back to no email on file
-
-Development only. Real RFQs go to whatever is in here, so pointing every vendor
-at one inbox means three invites arrive as three near-identical mails that are
-only tellable apart by the greeting and the link.
-
-`--clear` exists because a vendor with no address is a case worth being able to
-reproduce: it is the one the invite list has to flag for somebody to phone,
-rather than skipping in silence.
-"""
 import asyncio
 import sys
 
@@ -36,8 +22,6 @@ async def main(email: str | None, needle: str | None) -> None:
             v.contact_email = email
             print(f"  {v.company_name:24} {before:34} -> {email or '(none)'}")
 
-            # An invite raised while they had no address still carries "hand
-            # this over another way". Giving them one makes that flag a lie.
             if email:
                 invites = (await db.execute(
                     select(TenderVendorInvite).where(

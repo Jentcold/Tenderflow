@@ -1,22 +1,3 @@
-"""the offer approval chain, and department codes
-
-After the department manager picks an offer it walks three desks: purchasing,
-then the purchasing manager, then supply chain. That needs three new
-`offerstatus` labels and a trail of who signed what.
-
-`departments.code` comes with it. The purchasing manager is defined as "a
-manager whose department is Purchasing", so the code has to be able to find
-that department without depending on nobody ever renaming it.
-
-Hand-written: alembic does NOT diff enum values. Adding a member to a Python
-enum produces an EMPTY autogenerate migration and the failure only turns up at
-runtime as `invalid input value for enum`.
-
-Revision ID: f3c6d92a5188
-Revises: e2b5c81d4477
-Create Date: 2026-08-17
-
-"""
 from typing import Sequence, Union
 
 import sqlalchemy as sa
@@ -30,17 +11,12 @@ depends_on: Union[str, Sequence[str], None] = None
 
 NEW_LABELS = ("purchasing_ok", "purchasing_manager_ok", "approved")
 
-# Already created by e2b5c81d4477, so referenced rather than re-created.
 offer_status = postgresql.ENUM(
     "pending", "selected", "rejected", *NEW_LABELS, name="offerstatus", create_type=False
 )
 
 
 def upgrade() -> None:
-    # Postgres 12+ allows ADD VALUE inside a transaction as long as the new
-    # label isn't *used* in the same one. Nothing below writes one — the new
-    # column is nullable with no default — so this is safe under alembic's
-    # transactional DDL.
     for label in NEW_LABELS:
         op.execute(f"ALTER TYPE offerstatus ADD VALUE IF NOT EXISTS '{label}'")
 
@@ -71,9 +47,6 @@ def upgrade() -> None:
 
     op.add_column("departments", sa.Column("code", sa.String(length=32), nullable=True))
     op.create_index(op.f("ix_departments_code"), "departments", ["code"], unique=True)
-    # Best-effort backfill for a database seeded before codes existed. Matched
-    # on the names seed.py uses; anything renamed since is picked up the next
-    # time `python seed.py` runs, which also fills the code in.
     op.execute("UPDATE departments SET code = 'purchasing' WHERE name = 'Purchasing'")
     op.execute("UPDATE departments SET code = 'supply_chain' WHERE name = 'Supply Chain'")
     op.execute("UPDATE departments SET code = 'warehouse' WHERE name = 'Warehouse'")
@@ -108,9 +81,6 @@ def downgrade() -> None:
     ):
         op.drop_column("offers", column)
 
-    # A single label can't be dropped from a Postgres enum, so the type is
-    # rebuilt without the three. Rows carrying them are walked back to the
-    # nearest older meaning first, or the USING cast fails.
     op.execute(
         "UPDATE offers SET status = 'selected' "
         "WHERE status IN ('purchasing_ok', 'purchasing_manager_ok', 'approved')"

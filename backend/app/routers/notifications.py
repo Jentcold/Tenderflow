@@ -15,15 +15,6 @@ router = APIRouter(prefix="/notifications", tags=["notifications"], dependencies
 
 
 def _addressed_to(user: User):
-    """Rows this user should see.
-
-    Two addressing modes, and a notification uses exactly one. `for_role` is
-    the original: "whoever is on manager duty needs to look at this". `user_id`
-    is for news that belongs to one person rather than a job — an employee
-    hearing back on the request they personally raised. Employees hold no
-    for_role mail of their own, so without the second arm their bell never
-    rings.
-    """
     return or_(Notification.for_role == user.role, Notification.user_id == user.id)
 
 
@@ -49,8 +40,6 @@ async def list_my_notifications(
 
 @router.get("/unread-count")
 async def unread_count(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> dict:
-    """For the header badge — paging means the list no longer carries the
-    whole picture, and a badge shouldn't need to fetch rows to draw a number."""
     stmt = select(Notification).where(_addressed_to(user), Notification.read.is_(False))
     return {"unread": await count_rows(db, stmt)}
 

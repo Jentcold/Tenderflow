@@ -1,49 +1,41 @@
-"""Who manages what.
-
-Seniority in this app is a *department*, not a role: the purchasing manager is
-`role=manager` attached to Purchasing, and a department manager is the same role
-attached to their own. Every screen that has to tell those two apart, or has to
-ask "is this tender theirs", ends up needing the same two lookups.
-
-`offers.py` and `awards.py` still carry their own private copies of the first
-two; this module exists because the tender router needed the same rule when a
-department manager gained the right to edit their own department's request, and
-a fourth copy pasted into `tenders.py` is how a rule starts drifting. The
-semantics here match `offers.py::_managed_department_ids` exactly - if you
-change one, change both.
-"""
 import uuid
+from collections.abc import Callable
 
+from fastapi import Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.deps import get_current_user
+from app.database import get_db
 from app.models.department import PURCHASING_CODE, Department
 from app.models.tender import Tender
 from app.models.user import User, UserRole
 
 
 async def is_purchasing_manager(db: AsyncSession, user: User) -> bool:
-    """A manager whose own department is Purchasing.
-
-    This is the "purchasing manager" of the approval chain. There is no role for
-    it - the roles stay generic and seniority comes from the department - so
-    adding a second purchasing manager is adding a user row, with no enum label
-    and no migration.
-    """
     if user.role != UserRole.manager or user.department_id is None:
         return False
     department = await db.get(Department, user.department_id)
     return department is not None and department.code == PURCHASING_CODE
 
 
-async def managed_department_ids(db: AsyncSession, user: User) -> set[uuid.UUID]:
-    """Departments this user manages.
+def require_purchasing(*roles: str) -> Callable:
+    async def checker(
+        user: User = Depends(get_current_user),
+        db: AsyncSession = Depends(get_db),
+    ) -> User:
+        if user.role.value in roles:
+            return user
+        if await is_purchasing_manager(db, user):
+            return user
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, "Insufficient permissions for this action"
+        )
 
-    Two sources, deliberately OR-ed: `users.department_id` where the person's
-    role is manager (the general rule - a department can have several managers,
-    and adding one is adding a row), and the older `departments.manager` single
-    -head pointer, which some installs are still configured with.
-    """
+    return checker
+
+
+async def managed_department_ids(db: AsyncSession, user: User) -> set[uuid.UUID]:
     ids: set[uuid.UUID] = set()
     if user.role == UserRole.manager and user.department_id is not None:
         ids.add(user.department_id)
@@ -56,16 +48,6 @@ async def managed_department_ids(db: AsyncSession, user: User) -> set[uuid.UUID]
 
 
 async def manages_tender(db: AsyncSession, tender: Tender, user: User) -> bool:
-    """Is this tender one the caller is the department manager of?
-
-    False for the purchasing manager even though they are a manager: they sit on
-    the approval chain, not at the raising end of it, and the request they would
-    be "managing" here is somebody else's.
-
-    A manager attached to no department at all counts as managing everything -
-    the same known gap the offers scoping carries, kept so a half-configured
-    install and the demo data stay usable.
-    """
     if await is_purchasing_manager(db, user):
         return False
     managed = await managed_department_ids(db, user)

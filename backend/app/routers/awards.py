@@ -1,10 +1,3 @@
-"""The basket: assembling it, and walking it up the chain.
-
-Purchasing builds one basket per tender out of whatever answers each line best —
-the mobiles from one vendor, the laptops from another, the mouse bought by hand
-from a shop. The basket, not any single offer, is what the purchasing manager
-and supply chain approve.
-"""
 import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
@@ -13,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import log_audit
 from app.core.deps import require_roles
+from app.core.scope import require_purchasing
 from app.core.time import server_now
 from app.database import get_db
 from app.models.award import Award, AwardLine, AwardStatus, SourcingMode
@@ -35,15 +29,11 @@ from app.services.email_service import dispatch_emails, send_basket_emails
 
 router = APIRouter(prefix="/awards", tags=["awards"])
 
-CAN_BUILD = require_roles("admin", "procurement")
+CAN_BUILD = require_purchasing("admin", "procurement")
 CAN_VIEW = require_roles("admin", "procurement", "manager", "supply_chain", "finance")
 
 
-# ---------------------------------------------------------------- helpers --
-
 async def _is_purchasing_manager(db: AsyncSession, user: User) -> bool:
-    """A manager whose own department is Purchasing. Matched on the department
-    code, never its name, so renaming the department can't move the step."""
     if user.role != UserRole.manager or user.department_id is None:
         return False
     department = await db.get(Department, user.department_id)
@@ -141,8 +131,6 @@ async def _purchasing_manager_ids(db: AsyncSession) -> list[uuid.UUID]:
     )
 
 
-# ------------------------------------------------------ sourcing decision --
-
 @router.post("/tenders/{tender_id}/sourcing-mode", response_model=AwardOut)
 async def set_sourcing_mode(
     tender_id: uuid.UUID,
@@ -150,17 +138,6 @@ async def set_sourcing_mode(
     user: User = Depends(CAN_BUILD),
     db: AsyncSession = Depends(get_db),
 ) -> AwardOut:
-    """Vendors, or purchasing buys it themselves.
-
-    Only before any bid has arrived. Once a vendor has quoted, switching to
-    by-hand would leave offers on a tender nobody is going to read, and
-    switching back would mean inviting vendors to price something already
-    bought.
-
-    Choosing `by_hand` opens the basket immediately, pre-filled with one empty
-    line per requirement — the template purchasing completes with real prices
-    and a seller once the shopping is done.
-    """
     tender = await _tender_or_404(db, tender_id)
     if not tender.manager_approved:
         raise HTTPException(
@@ -188,7 +165,7 @@ async def set_sourcing_mode(
             created_by=user.id,
         )
         db.add(award)
-        await db.flush()  # assigns award.id, which the lines below hang off
+        await db.flush()
     else:
         if award.status != AwardStatus.draft:
             raise HTTPException(
@@ -199,8 +176,6 @@ async def set_sourcing_mode(
         await db.execute(AwardLine.__table__.delete().where(AwardLine.award_id == award.id))
 
     if payload.mode == SourcingMode.by_hand:
-        # The empty template. One line per requirement, priced at zero, with no
-        # seller yet — purchasing fills both in after buying.
         requirements = (
             await db.execute(
                 select(TenderItem).where(TenderItem.tender_id == tender.id).order_by(TenderItem.position)
@@ -220,9 +195,6 @@ async def set_sourcing_mode(
                     unit_price=0,
                 )
             )
-        # Nobody is being asked to approve anything yet — this is a heads-up
-        # that the tender left the vendor path, which is the one thing the
-        # other desks would otherwise never find out.
         for user_id in await _purchasing_manager_ids(db):
             db.add(
                 Notification(
@@ -253,25 +225,12 @@ async def set_sourcing_mode(
     return await _to_out(db, award)
 
 
-# ----------------------------------------------------- building the basket --
-
 @router.get("", response_model=list[AwardOut])
 async def list_awards(
     status_filter: AwardStatus | None = Query(default=None, alias="status"),
     user: User = Depends(CAN_VIEW),
     db: AsyncSession = Depends(get_db),
 ) -> list[AwardOut]:
-    """Live baskets across every tender, optionally filtered to one step.
-
-    Added because a basket sent up the chain had nowhere to be seen. The
-    purchasing manager got the notification and then had to find the tender,
-    open it and click through to the basket — and their nav has no Tenders page
-    on it, so in practice they could not get there at all. An approval that
-    exists only as a notification is not an approval anybody performs.
-
-    Active baskets only. A rejected one is superseded by the next attempt and
-    is history, not work.
-    """
     stmt = select(Award).where(Award.active.is_(True)).order_by(Award.submitted_at.desc().nullslast())
     if status_filter is not None:
         stmt = stmt.where(Award.status == status_filter)
@@ -285,7 +244,6 @@ async def get_award(
     user: User = Depends(CAN_VIEW),
     db: AsyncSession = Depends(get_db),
 ) -> AwardOut | None:
-    """The live basket for a tender, or null if purchasing hasn't started one."""
     await _tender_or_404(db, tender_id)
     award = await _active_award(db, tender_id)
     return await _to_out(db, award) if award else None
@@ -298,17 +256,6 @@ async def save_award(
     user: User = Depends(CAN_BUILD),
     db: AsyncSession = Depends(get_db),
 ) -> AwardOut:
-    """Write the basket. Replaces every line.
-
-    A basket is a set of choices that have to agree — each requirement bought
-    once, from one place. Saving it whole means it is never half-written;
-    patching a line at a time would let it sit in states that don't add up.
-
-    A line either points at an offer item (take this vendor's quote for this
-    requirement) or carries its own typed values (bought by hand). Mixing them
-    across lines in one basket is the entire point: the mobiles from Acme, the
-    laptop from Techno, the mouse from the shop downstairs.
-    """
     tender = await _tender_or_404(db, tender_id)
     award = await _active_award(db, tender_id)
     if award is None:
@@ -327,8 +274,6 @@ async def save_award(
             f"It has to be rejected before it can be changed.",
         )
     elif award.status == AwardStatus.rejected:
-        # A rejected basket is history. Editing it would rewrite what was
-        # refused, so the changes go into a fresh one.
         award.active = False
         await db.flush()
         award = Award(
@@ -340,8 +285,6 @@ async def save_award(
         db.add(award)
         await db.flush()
 
-    # Everything referenced has to belong to THIS tender. Unchecked, a crafted
-    # payload could pin another tender's quoted price onto this requirement.
     valid_items = set(
         (
             await db.execute(select(TenderItem.id).where(TenderItem.tender_id == tender.id))
@@ -378,8 +321,6 @@ async def save_award(
         vendor_name = (line.vendor_name or "").strip() or None
         vendor_id = line.vendor_id
         if source is not None and vendor_id is None and vendor_name is None:
-            # Taken from an offer with no supplier named: fill it in from the
-            # bid it came from, so the basket always says who is being paid.
             submission = await db.scalar(
                 select(Submission)
                 .join(Offer, Offer.submission_id == Submission.id)
@@ -403,8 +344,6 @@ async def save_award(
                 vendor_id=vendor_id,
                 vendor_name=vendor_name,
                 position=position,
-                # The offer's own wording wins where there is one — that is
-                # what was quoted, and what the vendor will be held to.
                 name=(source.name if source is not None else None) or line.name or "Unnamed line",
                 specs=(source.specs if source is not None else None) or line.specs,
                 notes=line.notes or (source.notes if source is not None else None),
@@ -420,18 +359,6 @@ async def save_award(
 
     award.notes = payload.notes
 
-    # The mode is read off the basket rather than declared before it is built.
-    #
-    # It used to be a tender-level choice made from two buttons, before any bid
-    # arrived — which meant deciding how something would be sourced at the one
-    # moment nobody could know. The basket itself already answers the question:
-    # a line taken from an offer is a vendor purchase, a line typed in is one
-    # purchasing went and bought. All-typed means by-hand; anything else means
-    # vendors are involved.
-    #
-    # It survives only as provenance now, and to decide whether losing-bid
-    # emails make sense (see _finalise). It deliberately no longer decides
-    # whether the basket skips approvals - see submit_award.
     award.mode = (
         SourcingMode.vendors
         if any(line.offer_item_id for line in payload.lines)
@@ -449,8 +376,6 @@ async def save_award(
     return await _to_out(db, award)
 
 
-# ------------------------------------------------------- the approval chain --
-
 @router.post("/tenders/{tender_id}/submit", response_model=AwardOut)
 async def submit_award(
     tender_id: uuid.UUID,
@@ -458,13 +383,6 @@ async def submit_award(
     user: User = Depends(CAN_BUILD),
     db: AsyncSession = Depends(get_db),
 ) -> AwardOut:
-    """Purchasing sends the basket up: purchasing manager, then supply chain.
-
-    On an **urgent** tender this is the last gate — both later desks are told
-    but not waited for. Same on a **by-hand** purchase, where the money is
-    already spent and an approval afterwards would be theatre; they are still
-    notified, because somebody has to be able to ask why.
-    """
     tender = await _tender_or_404(db, tender_id)
     award = await _active_award(db, tender_id)
     if award is None:
@@ -494,16 +412,6 @@ async def submit_award(
     award.submitted_at = server_now()
     award.submitted_by = user.id
 
-    # Urgency, and nothing else.
-    #
-    # A by-hand basket used to skip both remaining desks on the reasoning that
-    # it was petty cash already spent. That reasoning came from the button that
-    # declared the mode up front, when "by hand" meant "somebody is nipping to
-    # a shop". Now that the mode is derived from the lines, a basket can be
-    # entirely by-hand and still be a large purchase nobody has signed off -
-    # and skipping two approvals is not something that should happen because of
-    # how the lines happened to be filled in. Urgent is a deliberate flag a
-    # manager sets, so it stays.
     skip = tender.urgent
     reason = "urgent"
     purchasing_managers = await _purchasing_manager_ids(db)
@@ -568,22 +476,6 @@ async def submit_award(
 async def _tell_finance_and_purchasing(
     db: AsyncSession, award: Award, tender: Tender, lines: list[AwardLine], total: float
 ) -> None:
-    """Both desks that act after the approvals are done.
-
-    Finance gets more than "a purchase was approved", because on a basket that
-    sentence hides the only two questions they have. **Has it already been
-    paid?** A line taken from an offer is a vendor who will invoice; a line
-    purchasing walked out and bought is money already gone that somebody has to
-    be reimbursed for, and the two need different handling. **Was it a
-    registered vendor?** A supplier in the directory has a record and a tax id
-    behind them; a name typed into a basket line has neither, and finance has
-    to chase the paperwork before they can pay it.
-
-    Sent from here rather than from the supply chain endpoint so the urgent
-    path - which skips that endpoint entirely - tells them too. That omission
-    is exactly how an urgent purchase used to reach the accounts with nobody
-    in finance having heard of it.
-    """
     currency = award.currency
     prepaid = round(sum(line.line_total for line in lines if not line.offer_item_id), 2)
     invoiced = round(total - prepaid, 2)
@@ -633,12 +525,6 @@ async def _tell_finance_and_purchasing(
 
 
 async def _finalise(db: AsyncSession, award: Award, tender: Tender, user: User) -> list:
-    """Mark the tender bought, and tell the vendors.
-
-    Written here and nowhere earlier: until the last approval lands nobody has
-    committed to anything, and a tender carrying an awarded vendor for a basket
-    still walking the chain reads as bought when it isn't.
-    """
     lines = await _lines_of(db, award.id)
     total = round(sum(line.line_total for line in lines), 2)
     suppliers = [line.vendor_name for line in lines if line.vendor_name]
@@ -650,15 +536,10 @@ async def _finalise(db: AsyncSession, award: Award, tender: Tender, user: User) 
     tender.supply_chain_reviewed_by = user.id
     tender.status = TenderStatus.awarded
     tender.awarded_amount = total
-    # One name when it came from one place, otherwise say so plainly rather
-    # than picking a winner that doesn't exist.
     tender.awarded_vendor_name = (
         distinct[0] if len(distinct) == 1 else f"{len(distinct)} vendors" if distinct else None
     )
 
-    # Which bid each basket line came from, so every vendor can be told exactly
-    # what they won. By-hand lines have no offer behind them and trace to
-    # nobody, which is correct — there is no vendor to write to.
     won_by_submission: dict[uuid.UUID, list] = {}
     for line in lines:
         if not line.offer_item_id:
@@ -672,9 +553,6 @@ async def _finalise(db: AsyncSession, award: Award, tender: Tender, user: User) 
         if submission is not None:
             won_by_submission.setdefault(submission.id, []).append(line)
 
-    # `awarded_vendor_submission_id` names one vendor, so it is only meaningful
-    # when one vendor took the lot. On a split basket it stays null rather than
-    # naming whichever supplier happened to sort first.
     if len(won_by_submission) == 1:
         only = await db.get(Submission, next(iter(won_by_submission)))
         if only is not None:
@@ -689,8 +567,6 @@ async def _finalise(db: AsyncSession, award: Award, tender: Tender, user: User) 
         ).scalars().all()
     )
     if not submissions:
-        # An entirely by-hand basket: nobody bid, so there is nobody to write
-        # to. Not an error, just the end of the mail path.
         return []
     return await send_basket_emails(db, tender, submissions, won_by_submission)
 
@@ -701,8 +577,6 @@ async def purchasing_manager_approve(
     user: User = Depends(require_roles("admin", "manager")),
     db: AsyncSession = Depends(get_db),
 ) -> AwardOut:
-    """Guarded on the department, not the role: a department manager who
-    wandered in here would be approving the purchase they requested."""
     if user.role != UserRole.admin and not await _is_purchasing_manager(db, user):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
@@ -740,8 +614,6 @@ async def supply_chain_approve(
     user: User = Depends(require_roles("admin", "supply_chain")),
     db: AsyncSession = Depends(get_db),
 ) -> AwardOut:
-    """The last approval. After this it is bought: finance pays it and the
-    warehouse receives against these lines."""
     tender = await _tender_or_404(db, tender_id)
     award = await _active_award(db, tender_id)
     if award is None or award.status != AwardStatus.purchasing_manager_ok:
@@ -753,8 +625,6 @@ async def supply_chain_approve(
     award.status = AwardStatus.approved
     award.supply_chain_reviewed_at = server_now()
     award.supply_chain_reviewed_by = user.id
-    # Finance and purchasing are told inside _finalise, so the urgent path -
-    # which never reaches this endpoint - tells them too.
     queued = await _finalise(db, award, tender, user)
     await log_audit(db, "Basket Approved by Supply Chain", f"{tender.serial}", user.name)
     await db.commit()
@@ -771,13 +641,6 @@ async def reject_award(
     user: User = Depends(CAN_VIEW),
     db: AsyncSession = Depends(get_db),
 ) -> AwardOut:
-    """Turn the basket down at whichever desk it is sitting at.
-
-    One endpoint rather than three: the check is the same each time, you may
-    only reject at the step you are the approver for. `rejected_at_stage` keeps
-    which desk it died at — "rejected" alone can't say whether supply chain
-    killed it or the purchasing manager never let it out of the room.
-    """
     tender = await _tender_or_404(db, tender_id)
     award = await _active_award(db, tender_id)
     if award is None:
@@ -790,9 +653,6 @@ async def reject_award(
         allowed = user.role in (UserRole.admin, UserRole.supply_chain)
         desk = "supply chain"
     elif award.status == AwardStatus.approved:
-        # Withdrawing an approval, not refusing one. Without this the tender
-        # deadlocks: purchasing can't edit an approved basket and nothing could
-        # clear it.
         allowed = user.role in (UserRole.admin, UserRole.supply_chain)
         desk = "supply chain, who approved it"
     else:

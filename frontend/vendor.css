@@ -1,13 +1,3 @@
-/* Styling for the vendor's quotation page only.
-   Separate from style.css on purpose: the internal app's stylesheet carries
-   the whole desk UI, and this page is one form seen by people outside the
-   company. Keeping them apart means a change to either can't disturb the
-   other, and a vendor is served only what they need.
-
-   Light-first and deliberately plain. The internal app is dark; a document
-   somebody prints, forwards to a colleague or opens on a phone in a warehouse
-   reads better on white. */
-
 :root {
     --ink: #16202e;
     --ink-soft: #55627a;
@@ -27,7 +17,7 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
 body {
-    /* System stack: nothing to fetch, so the first paint is the real one. */
+
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
                  "Helvetica Neue", Arial, sans-serif;
     color: var(--ink);
@@ -35,8 +25,6 @@ body {
     line-height: 1.55;
     font-size: 15px;
 }
-
-/* ---------------------------------------------------------------- chrome */
 
 .masthead {
     background: var(--paper);
@@ -77,8 +65,6 @@ main { padding-top: 24px; padding-bottom: 40px; }
     color: var(--ink-faint);
     font-size: 12.5px;
 }
-
-/* ----------------------------------------------------------------- cards */
 
 .card {
     background: var(--paper);
@@ -138,8 +124,6 @@ h2 { font-size: 16px; }
 
 .notice svg { flex-shrink: 0; margin-top: 2px; }
 
-/* ----------------------------------------------------------------- table */
-
 .table-scroll {
     overflow-x: auto;
     border: 1px solid var(--line);
@@ -151,10 +135,6 @@ table {
     border-collapse: collapse;
 }
 
-/* Each table gets the width it actually needs rather than one shared figure.
-   The read-only requirements list is narrow enough to fit most laptops without
-   scrolling; the editor's tables genuinely are wide, and forcing the same
-   minimum on all three put a scrollbar under a five-column table for nothing. */
 .req-table   { min-width: 620px; }
 .pick-table  { min-width: 800px; }
 .extra-table { min-width: 940px; }
@@ -191,8 +171,7 @@ tfoot td {
 .want { font-size: 13px; color: var(--ink-soft); }
 .qty { white-space: nowrap; }
 .col-offer { width: 180px; }
-/* How many they can actually supply. Pre-filled with the requested amount, so
-   a vendor who can cover the line leaves it alone. */
+
 .col-can { width: 120px; }
 .col-price { width: 130px; }
 .col-total { width: 130px; text-align: right; white-space: nowrap; }
@@ -201,11 +180,7 @@ tfoot .col-total { color: var(--brand-dark); }
 .line-total { text-align: right; font-weight: 600; }
 .line-total.empty { color: var(--ink-faint); font-weight: 400; }
 
-/* Rows the vendor has actually priced, so a long list shows at a glance what
-   has been filled in and what is still blank. */
 tbody tr.priced { background: #f2f7ff; }
-
-/* ---------------------------------------------------------------- inputs */
 
 label {
     display: block;
@@ -249,8 +224,6 @@ textarea { resize: vertical; min-height: 76px; }
 
 .req { color: var(--bad); }
 
-/* --------------------------------------------------------------- actions */
-
 .actions {
     display: flex;
     justify-content: flex-end;
@@ -281,8 +254,6 @@ button[disabled] {
     cursor: not-allowed;
 }
 
-/* --------------------------------------------------------------- states */
-
 .loading, .state {
     text-align: center;
     padding: 60px 20px;
@@ -304,8 +275,6 @@ button[disabled] {
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }
-
-/* --------------------------------------------------------------- toasts */
 
 .toasts {
     position: fixed;
@@ -335,8 +304,6 @@ button[disabled] {
     to   { opacity: 1; transform: translateX(0); }
 }
 
-/* --------------------------------------------------------------- narrow */
-
 @media (max-width: 640px) {
     .fields { grid-template-columns: 1fr; }
     .card-head { flex-direction: column; }
@@ -345,22 +312,12 @@ button[disabled] {
     .actions button { width: 100%; }
 }
 
-/* Printing happens: a vendor forwards this to whoever signs off the price. */
 @media print {
     .masthead, .footer, .actions, .toasts { display: none; }
     body { background: #fff; font-size: 12px; }
     .card { border-color: #bbb; break-inside: avoid; }
     table { min-width: 0; }
 }
-
-
-/* ================================================================= offers ==
-   Everything below belongs to the offer builder: the saved-offer list, and the
-   editor that writes one. Added when the vendor form stopped being a single
-   priced table and became "read what's wanted, then compose one or more ways
-   of answering it". */
-
-/* --------------------------------------------------------- the saved list */
 
 .offer-list {
     display: flex;
@@ -394,10 +351,6 @@ button[disabled] {
     flex-shrink: 0;
 }
 
-/* --------------------------------------------------------------- buttons */
-
-/* Secondary actions. Only one thing on any screen should look like the thing
-   to press, and on this page that is always Save or Send. */
 button.ghost {
     background: var(--paper);
     color: var(--ink-soft);
@@ -418,7 +371,6 @@ button.ghost.danger:hover {
     color: var(--bad);
 }
 
-/* Icon-only buttons in table rows and the offer list. */
 button.ghost[aria-label] svg { display: block; }
 td.tick button.ghost, .offer-actions button.ghost[aria-label] { padding: 7px 9px; }
 
@@ -438,8 +390,6 @@ button svg { vertical-align: -2px; }
     flex-shrink: 0;
 }
 
-/* --------------------------------------------------------------- editor */
-
 h3.section {
     font-size: 14px;
     margin-top: 26px;
@@ -454,9 +404,6 @@ h3.section + .lede { margin-bottom: 12px; }
 
 .opt { font-weight: 400; color: var(--ink-faint); }
 
-/* Percentage sign welded to the field, so the unit is impossible to miss and
-   impossible to type into. A deposit read as money when it was meant as a
-   percentage is a five-figure misunderstanding. */
 .suffixed {
     display: flex;
     align-items: stretch;
@@ -499,8 +446,6 @@ h3.section + .lede { margin-bottom: 12px; }
 
 .offer-running strong { color: var(--brand-dark); }
 
-/* ------------------------------------------------------- the pick table */
-
 th.tick, td.tick {
     width: 42px;
     text-align: center;
@@ -515,8 +460,6 @@ td.tick input[type="checkbox"] {
     cursor: pointer;
 }
 
-/* Screen-reader-only column headings: a tick box and a bin need a name for
-   anyone not looking at them, and a visible one would be noise. */
 .sr {
     position: absolute;
     width: 1px; height: 1px;
@@ -551,8 +494,6 @@ select:focus {
 .col-replaces { width: 190px; }
 .col-unit { width: 80px; }
 
-/* An unticked row is still readable - it is part of the request - but visibly
-   not part of this offer. */
 tbody tr.off { color: var(--ink-faint); }
 tbody tr.off strong { font-weight: 600; color: var(--ink-soft); }
 tbody tr.off input:disabled {
@@ -561,9 +502,6 @@ tbody tr.off input:disabled {
     cursor: not-allowed;
 }
 
-/* More than was ordered. Allowed - a box of ten, a spare thrown in - so this
-   is amber rather than red: a note, not a refusal. It exists so a vendor who
-   meant 3 and typed 30 sees it before they send. */
 tbody tr.over { background: var(--warn-wash); }
 tbody tr.over .col-can input {
     border-color: #e2c583;
@@ -578,8 +516,6 @@ tbody tr.over .col-can::after {
     color: var(--warn);
 }
 
-/* ---------------------------------------------------------------- narrow */
-
 @media (max-width: 640px) {
     .offer-row { flex-wrap: wrap; }
     .offer-id { flex-basis: 100%; }
@@ -588,10 +524,6 @@ tbody tr.over .col-can::after {
     .offer-running { margin-right: 0; text-align: center; }
 }
 
-/* --------------------------------------------------- required documents */
-/* One labelled slot per document the tender asks for. Boxed and set apart
-   from the fields beside it because an unattached document is the one thing
-   here that stops the quotation being sent at all. */
 .doc-slots {
     margin: 18px 0;
     padding: 16px 18px;

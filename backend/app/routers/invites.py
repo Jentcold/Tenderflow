@@ -1,13 +1,3 @@
-"""Who gets asked to bid, and the link that asks them.
-
-Being in the tender's category makes a vendor a **candidate**. Purchasing
-decides which candidates are actually approached — that decision is this
-router, and it is why the invite list is a table rather than a query.
-
-Nothing goes out until somebody presses send. Picking the list and sending the
-RFQ are two steps on purpose: the list gets checked before three hundred
-vendors hear about a tender by accident.
-"""
 import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, status
@@ -16,7 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core.audit import log_audit
-from app.core.deps import require_roles, require_staff
+from app.core.deps import require_staff
+from app.core.scope import require_purchasing
 from app.core.links import vendor_invite_link
 from app.core.time import server_now
 from app.database import get_db
@@ -32,8 +23,7 @@ from app.services.email_service import dispatch_emails
 
 router = APIRouter(prefix="/tenders/{tender_id}/vendors", tags=["invites"])
 
-CAN_INVITE = require_roles("admin", "procurement")
-
+CAN_INVITE = require_purchasing("admin", "procurement")
 
 
 async def _tender_or_404(db: AsyncSession, tender_id: uuid.UUID) -> Tender:
@@ -44,12 +34,6 @@ async def _tender_or_404(db: AsyncSession, tender_id: uuid.UUID) -> Tender:
 
 
 async def _rows(db: AsyncSession, tender: Tender, request: Request) -> list[VendorInviteOut]:
-    """Every candidate for this tender, with their invite state.
-
-    Candidates are the active vendors in the tender's category. Anyone already
-    invited is included even if they've since been deactivated or recategorised
-    — dropping them from the list would hide an invitation that exists.
-    """
     invites = {
         i.vendor_id: i
         for i in (
@@ -65,8 +49,6 @@ async def _rows(db: AsyncSession, tender: Tender, request: Request) -> list[Vend
         await db.execute(
             select(Vendor)
             .where(
-                # Any of their categories, not one: a vendor selling laptops
-                # and desks is a candidate for a tender about either.
                 Vendor.id.in_(
                     select(vendor_categories.c.vendor_id).where(
                         vendor_categories.c.category_id == tender.category_id
@@ -119,7 +101,6 @@ async def _rows(db: AsyncSession, tender: Tender, request: Request) -> list[Vend
 async def list_candidates(
     tender_id: uuid.UUID, request: Request, db: AsyncSession = Depends(get_db)
 ) -> list[VendorInviteOut]:
-    """The vendors who could be asked, and which of them have been."""
     tender = await _tender_or_404(db, tender_id)
     return await _rows(db, tender, request)
 
@@ -132,13 +113,6 @@ async def set_invites(
     user: User = Depends(CAN_INVITE),
     db: AsyncSession = Depends(get_db),
 ) -> list[VendorInviteOut]:
-    """Set the invite list. Replaces it wholesale.
-
-    A vendor already sent to is **not** removed by dropping them here: the mail
-    is out and the link works, so pretending otherwise would be a lie the
-    database tells. Un-inviting them is `DELETE /{vendor_id}`, which revokes
-    the link explicitly.
-    """
     tender = await _tender_or_404(db, tender_id)
     if tender.sourcing_mode == SourcingMode.by_hand:
         raise HTTPException(
@@ -196,12 +170,6 @@ async def revoke_invite(
     user: User = Depends(CAN_INVITE),
     db: AsyncSession = Depends(get_db),
 ) -> list[VendorInviteOut]:
-    """Withdraw an invitation, and kill its link.
-
-    Revoked rather than deleted: a link that was sent out is a thing that
-    happened, and the token has to stay recorded so the same one can't be
-    reissued by chance.
-    """
     tender = await _tender_or_404(db, tender_id)
     invite = await db.scalar(
         select(TenderVendorInvite).where(
@@ -237,18 +205,6 @@ async def confirm_handover(
     user: User = Depends(CAN_INVITE),
     db: AsyncSession = Depends(get_db),
 ) -> list[VendorInviteOut]:
-    """Record that the flagged vendors were given their link by hand.
-
-    A vendor with no email on file can't be mailed, so `send` flags them
-    instead of pretending. Somebody then phones or messages them — and until
-    now there was nowhere to say so, which left the list showing them as
-    outstanding forever and no way to tell "nobody has called them yet" from
-    "called them on Tuesday".
-
-    This is a claim by the person pressing it, not proof of delivery: no mail
-    was sent and none is recorded. The audit log names who confirmed it, which
-    is the accountability that replaces a delivery receipt.
-    """
     tender = await _tender_or_404(db, tender_id)
 
     rows = (
@@ -272,9 +228,6 @@ async def confirm_handover(
     names = []
     for invite, vendor in rows:
         invite.needs_other_channel = False
-        # Only stamp the time if this is the first time it went out at all;
-        # a vendor emailed earlier and chased by phone keeps the date the
-        # invitation actually reached them.
         if invite.sent_at is None:
             invite.sent_at = now
         names.append(vendor.company_name)
@@ -302,26 +255,6 @@ async def send_rfq(
     user: User = Depends(CAN_INVITE),
     db: AsyncSession = Depends(get_db),
 ) -> list[VendorInviteOut]:
-    """Send the RFQ to everyone on the list who hasn't had it yet.
-
-    Each vendor gets their **own** link. One shared link would make every bid
-    anonymous at exactly the moment attribution matters, and would let one
-    invited vendor forward the tender to anyone.
-
-    A vendor with no email on file is flagged rather than skipped silently —
-    their link exists and someone has to hand it over another way. That is the
-    hook the WhatsApp channel goes on.
-
-    `?resend=true` includes vendors who were already sent it. Mail gets lost,
-    and a link can go out wrong — without this the only remedy was revoking a
-    vendor and re-adding them, which issues a new token and silently breaks the
-    link they may already be holding. Resending reuses the same token, so both
-    copies of the mail lead to the same place.
-
-    A vendor who has already submitted is never sent it again, resend or not:
-    their quotation is sealed and a second one is refused, so the mail could
-    only invite them to try something that won't work.
-    """
     tender = await _tender_or_404(db, tender_id)
     if tender.status != TenderStatus.open:
         raise HTTPException(
@@ -329,9 +262,6 @@ async def send_rfq(
             f"Only an open tender can go out to vendors (this one is {tender.status.value})",
         )
     if tender.deadline_date is None or tender.deadline_time is None:
-        # Approving sets the deadline, so this only catches a tender opened
-        # before that was true. Asking a vendor to quote with no closing date
-        # invites a bid that arrives whenever.
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             "This tender has no closing date yet. Set one before inviting vendors.",
@@ -352,8 +282,6 @@ async def send_rfq(
         )
     ).all()
 
-    # Whoever has already bid drops out here rather than in the loop, so the
-    # "nothing to send" message below is accurate.
     already_bid = set(
         (
             await db.execute(
@@ -402,8 +330,6 @@ async def send_rfq(
             recipient_email=address,
             type=EmailType.rfq,
             subject=(
-                # Says so on the tin. A vendor who got the first one needs to
-                # know this is the same request, not a second one to price.
                 f"{'Reminder: invitation' if invite.sent_at else 'Invitation'} to quote"
                 f" - {tender.serial} - {tender.name}"
             ),

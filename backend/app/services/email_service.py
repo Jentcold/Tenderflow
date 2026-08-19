@@ -36,7 +36,6 @@ def _queue_email(
     email_type: EmailType,
     extra: dict[str, str] | None = None,
 ) -> SentEmail:
-    """Render one template against one submission and stage the row."""
     replacements = {
         "{vendor_company}": sub.company_name,
         "{vendor_contact}": sub.contact_name,
@@ -47,15 +46,7 @@ def _queue_email(
         "{currency}": tender.currency,
         "{awarded_amount}": f"{tender.awarded_amount:,.2f}" if tender.awarded_amount else "0",
         "{bid_amount}": f"{sub.total_amount:,.2f}",
-        # Scoring is gone, but a template saved before it went may still carry
-        # the old token. Substituted to nothing rather than left alone, so a
-        # stale template sends a slightly bare email instead of one with
-        # "{combined_score}" printed in it.
         "{combined_score}": "",
-        # Basket-only. Empty on every other template, which is what a vendor
-        # winning a whole tender should see if somebody pastes the token into
-        # the winner template by mistake - a blank line rather than a literal
-        # "{awarded_lines}" in their inbox.
         "{awarded_lines}": extra.get("awarded_lines", "") if extra else "",
         "{awarded_line_total}": extra.get("awarded_line_total", "") if extra else "",
     }
@@ -82,15 +73,6 @@ async def send_award_emails(
     tender: Tender,
     submissions: list[Submission],
 ) -> list[SentEmail]:
-    """Builds a SentEmail row per vendor (winner template for the awarded one, loser for the rest).
-
-    Every submission on the tender gets one: a vendor who bid is owed an answer
-    either way.
-
-    Rows are only queued here — nothing touches the network inside the request.
-    Hand the returned ids to `dispatch_emails` as a background task so a slow or
-    unreachable mail server can't fail (or stall) the award itself.
-    """
     templates = await get_templates(db)
     return [
         _queue_email(
@@ -110,29 +92,6 @@ async def send_basket_emails(
     submissions: list[Submission],
     won_by_submission: dict[uuid.UUID, list],
 ) -> list[SentEmail]:
-    """One mail per bidder when a **basket** is what was approved.
-
-    Deliberately a separate function from `send_award_emails`, not a flag on it.
-    The two answer different questions and the difference is not cosmetic:
-
-    * `send_award_emails` is for a single offer clearing the chain. One vendor
-      takes the tender, everyone else is told they didn't.
-    * this one is for a basket, where the tender can be split. A vendor may have
-      won two lines out of five, and the `winner` template - "the tender is
-      yours" - would have them delivering the whole order.
-
-    So each winning vendor gets a `basket_award` naming **their** lines and
-    their own total, and every other bidder gets the ordinary `loser`. Lines
-    purchasing bought by hand have no vendor and no mail: there is nobody to
-    tell.
-
-    `won_by_submission` maps a submission id to the award lines traced back to
-    it. Built by the caller, which is the only place that can see both the
-    basket and the offers it came from.
-
-    Rows are queued only; hand the ids to `dispatch_emails` in the background so
-    an unreachable mail server can't stall the approval.
-    """
     templates = await get_templates(db)
     out: list[SentEmail] = []
 
@@ -149,11 +108,6 @@ async def send_basket_emails(
             f"= {tender.currency} {float(line.quantity) * float(line.unit_price):,.2f}"
             for line in lines
         )
-        # A basket award template may not exist on an install seeded before
-        # this type did. Falling back to `winner` would tell a partial winner
-        # they took the whole tender, which is the exact mistake this type
-        # exists to prevent - so the lines are appended to the loser-free
-        # winner text only if that is genuinely all there is.
         template = templates.get(EmailType.basket_award) or templates[EmailType.winner]
         out.append(
             _queue_email(
@@ -177,13 +131,6 @@ async def send_reassignment_emails(
     previous: Submission,
     replacement: Submission,
 ) -> list[SentEmail]:
-    """Two emails only: the withdrawal to the vendor who lost the award, and the
-    win to the vendor who gained it.
-
-    The other bidders were already told they lost when the tender was first
-    awarded, and nothing about that has changed — mailing them again would just
-    reopen a decision they've already been given.
-    """
     templates = await get_templates(db)
     return [
         _queue_email(
@@ -193,23 +140,14 @@ async def send_reassignment_emails(
     ]
 
 
-# ------------------------------------------------------------------ delivery
-
-
 async def _deliver_one(db: AsyncSession, email: SentEmail) -> None:
-    """Attempt one email, recording the outcome on its row.
-
-    Retries in-process with a short backoff. That covers a mail server
-    momentarily refusing connections; it does not survive a restart, so a row
-    left `failed` is meant to be picked up by the resend endpoint.
-    """
     last_error = "Unknown error"
 
     for attempt in range(1, settings.MAIL_MAX_ATTEMPTS + 1):
         email.attempts += 1
         try:
             await send_message(email.recipient_email, email.subject, email.body)
-        except Exception as exc:  # noqa: BLE001 — outcome is recorded, not swallowed
+        except Exception as exc:  # noqa: BLE001
             last_error = f"{type(exc).__name__}: {exc}"
             logger.warning(
                 "Email %s to %s failed (attempt %d/%d): %s",
@@ -231,8 +169,6 @@ async def _deliver_one(db: AsyncSession, email: SentEmail) -> None:
 
 
 async def dispatch_emails(email_ids: list[uuid.UUID]) -> None:
-    """Send queued emails. Runs as a BackgroundTask, so it opens its own
-    session — the request's session is already closed by the time this runs."""
     if not email_ids:
         return
 

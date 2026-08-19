@@ -1,68 +1,9 @@
-// The vendor's quotation page. Standalone by design.
-//
-// This file shares nothing with script.js. That is the point: everything a
-// browser is handed can be read by whoever holds the link, and a vendor is
-// outside the company. Serving them the internal bundle served them every
-// screen, every role check and every endpoint name in the staff app, all of it
-// dead code for them and none of it their business.
-//
-// What is in here is only what the form needs. There are exactly two endpoints
-// below, both public and both scoped to one token.
-//
-// The token is the whole identity. It says which tender this is and which
-// company is being asked, so there is nothing to log in to and no session to
-// keep. Anyone holding the link can quote as that company - which is why the
-// covering email tells them not to forward it.
-//
-// ---------------------------------------------------------------------------
-// The shape of the page
-//
-// Top: what the company is asking for, read-only. Bottom: the offers the
-// vendor builds against it. An offer is one complete way of answering the
-// tender - "all four items, Logitech" is one offer, "three of them plus a
-// substitute for the fourth, cheaper" is another. A vendor files as many as
-// they want and purchasing picks between them.
-//
-// Building an offer starts from the company's own list rather than a blank
-// table: tick a row and the name, specification and unit are already there, so
-// the only typing is a quantity and a price. Typing is only needed for what
-// ISN'T on the list - a substitute for something they don't stock.
-//
-// Offers are drafts, held in this browser (and in localStorage, so a refresh
-// doesn't cost an afternoon's work) until the whole quotation is sent. Nothing
-// reaches the company until Send, and after Send nothing can be changed: a
-// price that can be revised once the others are in is not a sealed bid.
-
-// Where the API lives, worked out from where this page was served.
-//
-// It used to be hardcoded to http://localhost:8000, which is fine on the
-// machine running the stack and useless everywhere else: on somebody else's
-// laptop "localhost" is THEIR laptop, so the pages arrive and every request
-// dies. That is the whole failure mode behind putting a tunnel in front of the
-// static server.
-//
-// So: if this page came off the standalone static server (or a file:// path),
-// the API is the separate process on :8000. Otherwise the backend served this
-// page itself and the API is on the same origin - a relative path, which
-// follows whatever host the browser actually used, tunnel included, and needs
-// no CORS because there is no cross origin.
-//
-// window.TENDERFLOW_API_BASE still overrides both, for anything neither guess
-// covers.
 const API_BASE = window.TENDERFLOW_API_BASE || (
     location.protocol === 'file:' || location.port === '5500'
         ? 'http://localhost:8000/api'
         : '/api'
 );
 
-// ngrok's free tier puts an interstitial "you are about to visit" page in front
-// of the first request from a new visitor. A browser navigation clicks through
-// it; a fetch() just receives the warning HTML where it expected JSON, and the
-// form looks broken for reasons nothing in it can explain. This header opts out.
-//
-// Sent only when the API is same-origin, which is exactly the tunnelled case.
-// A custom header on a cross-origin request would make every call preflighted
-// for no reason, so the :5500 setup never sees it.
 const TUNNEL_HEADERS = API_BASE.startsWith('/')
     ? { 'ngrok-skip-browser-warning': 'true' }
     : {};
@@ -71,9 +12,9 @@ const state = {
     token: null,
     tender: null,
     vendor: null,
-    // Saved drafts. Each: { id, title, notes, picked: {itemId: {qty, price}}, extras: [...] }
+
     offers: [],
-    // The one being written right now, or null when the list is showing.
+
     editing: null,
     submitting: false,
 };
@@ -82,11 +23,6 @@ const $ = (id) => document.getElementById(id);
 const page = () => $('page');
 let seq = 0;
 
-
-// ------------------------------------------------------------------- utils
-
-// Text destined for markup. Goes through a text node rather than a regex, so
-// there is one definition of "escaped" and it is the browser's.
 function esc(value) {
     if (value === null || value === undefined) return '';
     const d = document.createElement('div');
@@ -94,8 +30,6 @@ function esc(value) {
     return d.innerHTML;
 }
 
-// For values inside an attribute. esc leaves double quotes alone, so an item
-// called `24" monitor` would close the attribute early and lose the rest.
 function escAttr(value) {
     return esc(value).replace(/"/g, '&quot;');
 }
@@ -105,10 +39,6 @@ function num(value) {
     return Number.isFinite(n) ? n : 0;
 }
 
-// Whether a field was actually filled in, as opposed to left alone. Matters
-// now that zero is a real price: a vendor throwing in a case with the laptop
-// types 0, and that has to be told apart from a row they simply skipped.
-// A blank is never read as free.
 function filled(value) {
     return String(value === null || value === undefined ? '' : value).trim() !== '';
 }
@@ -157,16 +87,6 @@ function showState(icon, heading, body) {
         </div></div>`;
 }
 
-
-// ------------------------------------------------------------------ drafts
-
-// Drafts survive a refresh. A vendor pricing forty lines on a warehouse laptop
-// should not lose the lot to a stray reload, and the alternative - saving
-// half-finished offers on the server - would put unsent prices in front of
-// purchasing before the vendor meant to show anyone.
-//
-// Scoped to the token, so two invitations open in one browser can't overwrite
-// each other's work.
 function draftKey() {
     return `tenderflow.draft.${state.token}`;
 }
@@ -175,8 +95,7 @@ function saveDrafts() {
     try {
         localStorage.setItem(draftKey(), JSON.stringify(state.offers));
     } catch (err) {
-        // Private browsing, a full quota, a locked-down device. Losing the
-        // safety net is not a reason to stop them quoting.
+
     }
 }
 
@@ -192,19 +111,13 @@ function loadDrafts() {
 }
 
 function clearDrafts() {
-    try { localStorage.removeItem(draftKey()); } catch (err) { /* see above */ }
+    try { localStorage.removeItem(draftKey()); } catch (err) {  }
 }
-
-
-// ----------------------------------------------------------------- offer maths
 
 function itemsById() {
     return new Map((state.tender.items || []).map((i) => [i.id, i]));
 }
 
-// Every priced line of one draft, in the shape the API wants. The single place
-// a draft turns into lines, so the totals on screen and the payload sent can't
-// drift apart - they are computed from this same list.
 function offerLines(offer) {
     const byId = itemsById();
     const lines = [];
@@ -214,9 +127,7 @@ function offerLines(offer) {
         if (!pick) return;
         const qty = num(pick.qty);
         const price = num(pick.price);
-        // The tick is what says "I'm quoting this row", so the price no longer
-        // has to be positive to mean anything - it only has to have been
-        // typed. Zero is a price. Blank is not.
+
         if (qty <= 0 || !filled(pick.price) || price < 0) return;
         lines.push({
             tender_item_id: item.id,
@@ -238,9 +149,7 @@ function offerLines(offer) {
         const replaced = extra.replaces ? byId.get(extra.replaces) : null;
         lines.push({
             tender_item_id: replaced ? replaced.id : null,
-            // An item offered against one of the company's own lines is a
-            // substitute for it. One thrown in on top answers no requirement,
-            // and saying it replaces something would be untrue.
+
             is_replacement: !!replaced,
             name: extra.name.trim(),
             specs: (extra.specs || '').trim() || null,
@@ -258,9 +167,6 @@ function offerTotal(offer) {
     return offerLines(offer).reduce((sum, l) => sum + l.quantity * l.unit_price, 0);
 }
 
-// What an offer covers, for the one-line summary in the list. Counted on the
-// company's requirements, not on the vendor's rows, because "3 of 4" is the
-// question purchasing is actually asking.
 function offerCoverage(offer) {
     const lines = offerLines(offer);
     const answered = new Set(lines.filter((l) => l.tender_item_id).map((l) => l.tender_item_id));
@@ -272,13 +178,6 @@ function offerCoverage(offer) {
     };
 }
 
-// Quoting for more than was asked for is allowed, and only flagged. A supplier
-// with a box of ten prices the box; somebody throws in a spare. What the form
-// owes the vendor is a visible "that's more than we asked for" so a typo
-// doesn't sail through, not a refusal that also blocks the genuine bundle.
-//
-// Summed per requirement rather than per line, because one offer may answer
-// the same requirement twice: two from stock plus a substitute for the third.
 function overSupplied(offer) {
     const byId = itemsById();
     const totals = new Map();
@@ -304,9 +203,6 @@ function offerLabel(offer) {
     const n = i === -1 ? state.offers.length + 1 : i + 1;
     return `Offer ${n}`;
 }
-
-
-// ------------------------------------------------------------------ render
 
 function render() {
     const { vendor, tender } = state;
@@ -340,10 +236,6 @@ function render() {
     if (state.editing) wireEditor(); else wireList();
 }
 
-// The top half: what the company asked for, exactly as it was written, with
-// nothing to fill in. A vendor reads the whole request before deciding how to
-// answer it, and mixing the reading and the answering into one table was what
-// made the old form feel like data entry.
 function requirementsCard() {
     const items = state.tender.items || [];
     if (!items.length) {
@@ -415,8 +307,7 @@ function offerSummary(offer) {
     if (cover.of) bits.push(`${cover.covered} of ${cover.of} requested item${cover.of === 1 ? '' : 's'}`);
     if (cover.replacements) bits.push(`${cover.replacements} substitute${cover.replacements === 1 ? '' : 's'}`);
     if (cover.extras) bits.push(`${cover.extras} extra${cover.extras === 1 ? '' : 's'}`);
-    // Escaped one at a time, then joined - running the joined string through
-    // esc() would turn the separator entity into visible "&middot;" text.
+
     const summary = bits.map(esc).join(' &middot; ') || 'nothing priced';
 
     return `
@@ -434,18 +325,6 @@ function offerSummary(offer) {
         </div>`;
 }
 
-// One upload box per document the tender asks for, labelled with the thing it
-// is asking for.
-//
-// The old form had a single unlabelled attachment box and a sentence saying
-// "please have ready: tax card, commercial register". What came back was a
-// list of filenames, and working out which of them was the tax card meant
-// reading whatever the vendor happened to call the file. A labelled slot asks
-// the question the desk actually has, and the answer arrives already sorted.
-//
-// Purchasing may add a document after the tender opened, so a vendor part-way
-// through can meet a requirement that wasn't there when they started. That is
-// the case this is drawn from the live tender for, rather than from the draft.
 function documentsBlock() {
     const docs = (state.tender.required_docs || []).filter(d => d && d.trim());
     if (!docs.length) return '';
@@ -463,9 +342,6 @@ function documentsBlock() {
         </div>`;
 }
 
-// Reads the slots back. Returns null and complains when one is empty, so the
-// vendor is told which document is missing before anything is sent rather than
-// getting a refusal from the server naming all of them at once.
 function collectDocuments() {
     const docs = (state.tender.required_docs || []).filter(d => d && d.trim());
     const picked = [];
@@ -524,9 +400,6 @@ function sendCard() {
             </div>
         </div>`;
 }
-
-
-// ------------------------------------------------------------------ editor
 
 function editorCard() {
     const offer = state.editing;
@@ -672,9 +545,6 @@ function editorCard() {
         </div>`;
 }
 
-// Reads every input in the editor back into the draft. Called before anything
-// that redraws, and before saving, so what is on screen and what is in state
-// never disagree - the draft is the record, the DOM is just its current view.
 function harvest() {
     const offer = state.editing;
     if (!offer) return;
@@ -704,9 +574,6 @@ function harvest() {
     });
 }
 
-// Line totals and the running total, updated in place. Deliberately not a
-// re-render: the vendor is mid-keystroke and redrawing would take the cursor
-// with it.
 function recalc() {
     const offer = state.editing;
     if (!offer) return;
@@ -725,9 +592,7 @@ function recalc() {
 
         row.classList.toggle('off', !on);
         row.classList.toggle('priced', counts);
-        // Flagged as it is typed, not refused. More than was asked for is
-        // allowed - a box of ten, a spare thrown in - but a vendor who meant
-        // to type 3 and typed 30 should see it before they send.
+
         row.classList.toggle('over', on && item && qty > num(item.quantity));
 
         if (counts) {
@@ -764,8 +629,7 @@ function wireEditor() {
     root.querySelectorAll('[data-field="have"]').forEach((box) => {
         box.addEventListener('change', () => {
             const row = box.closest('tr');
-            // Enabled and disabled in place rather than by redrawing, so a row
-            // ticked by mistake and unticked again gives back what was typed.
+
             row.querySelectorAll('[data-field="qty"], [data-field="price"]').forEach((input) => {
                 input.disabled = !box.checked;
             });
@@ -792,7 +656,7 @@ function wireEditor() {
         state.editing.extras.push({ name: '', specs: '', replaces: '', qty: '', unit: 'pcs', price: '' });
         render();
         recalc();
-        // Straight into the new row: adding one means wanting to type in it.
+
         const rows = page().querySelectorAll('tr[data-extra] [data-field="name"]');
         if (rows.length) rows[rows.length - 1].focus();
     });
@@ -810,13 +674,6 @@ function saveOffer() {
     harvest();
     const offer = state.editing;
 
-    // Half-filled rows are the common slip: a price with no quantity, or a
-    // ticked row with neither. Named one by one, because "something is wrong"
-    // on a forty-line table is not help.
-    // A blank price is the slip worth catching. It can no longer be read as
-    // "not quoting" - the tick already says that - and reading it as free
-    // would file a giveaway the vendor never offered. So a ticked row with an
-    // empty price box is incomplete, and a row priced 0 is fine.
     const incomplete = [];
     const byId = itemsById();
     Object.keys(offer.picked).forEach((id) => {
@@ -850,8 +707,6 @@ function saveOffer() {
     saveDrafts();
     render();
 
-    // Said after saving, not instead of it. Over-supply is allowed; the vendor
-    // just gets told it happened, in case 30 was meant to be 3.
     const over = overSupplied(offer);
     toast(over.length
         ? `Offer saved. Note you've quoted more than we asked for on: ${over.join(', ')}.`
@@ -888,9 +743,6 @@ function wireList() {
     if (send) send.addEventListener('click', submit);
 }
 
-
-// ------------------------------------------------------------------ submit
-
 async function submit() {
     if (state.submitting) return;
     const { tender } = state;
@@ -906,8 +758,6 @@ async function submit() {
         return;
     }
 
-    // Re-checked here as well as at save, because a draft restored from a
-    // previous visit was put together against the tender as it stood then.
     const payload = [];
     for (const offer of state.offers) {
         const items = offerLines(offer);
@@ -916,10 +766,7 @@ async function submit() {
             return;
         }
         payload.push({
-            // Untitled offers are numbered rather than left blank, so the
-            // people comparing them have something to name in a meeting. The
-            // number is safe where a free-text title isn't: it says nothing
-            // about who filed it.
+
             title: offer.title || (state.offers.length > 1 ? offerLabel(offer) : null),
             notes: offer.notes || null,
             items,
@@ -927,23 +774,16 @@ async function submit() {
     }
 
     const documents = collectDocuments();
-    if (documents === null) return;   // a required document is missing; already said so
+    if (documents === null) return;
 
-    // No contact fields to read. Purchasing already holds this vendor's name,
-    // email and phone, and the backend takes them from the directory.
     const form = new FormData();
     form.append('deposit_percent', String(deposit));
     form.append('notes', $('notes').value.trim());
     form.append('offers', JSON.stringify(payload));
-    // Labels and files as two parallel lists rather than one field per
-    // document: the field names would then be vendor-controlled text, and the
-    // server would be matching on a string it never chose.
+
     form.append('doc_labels', JSON.stringify(documents.map(d => d.label)));
     documents.forEach(d => form.append('doc_files', d.file, d.file.name));
 
-    // Locked while in flight. A sealed bid is refused on the second attempt, so
-    // a double-click would otherwise show the vendor a conflict error for a
-    // submission that actually succeeded.
     state.submitting = true;
     const button = $('send');
     button.disabled = true;
@@ -957,8 +797,6 @@ async function submit() {
         const body = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(body.detail || 'Your quotation could not be submitted.');
 
-        // Only now, and only on success. Clearing the drafts before the server
-        // has taken it would lose the work to any failure in between.
         clearDrafts();
         showState(ICON.done, 'Quotation received',
             `Thank you. Your ${payload.length} offer${payload.length === 1 ? '' : 's'} for `
@@ -971,9 +809,6 @@ async function submit() {
         toast(err.message, true);
     }
 }
-
-
-// ------------------------------------------------------------------- start
 
 async function open() {
     const token = new URLSearchParams(window.location.search).get('invite');
@@ -992,9 +827,7 @@ async function open() {
         if (!res.ok) throw new Error('not valid');
         data = await res.json();
     } catch (err) {
-        // Every failure looks the same on purpose. A link that has been
-        // withdrawn must not be distinguishable from one that never existed,
-        // or the difference becomes a way to test guessed tokens.
+
         showState(ICON.broken, "This link isn't valid",
             'It may have been withdrawn, or the address may have been copied incompletely. '
             + 'Please get in touch with the purchasing team who sent it.');
@@ -1006,9 +839,7 @@ async function open() {
     document.title = `Quote — ${data.tender.serial}`;
 
     if (!data.can_submit) {
-        // A closed tender still shows what was asked for - a vendor who missed
-        // the deadline wants to see what they missed - but nothing to fill in,
-        // and any draft left on this device is now worthless.
+
         clearDrafts();
         page().innerHTML = requirementsCard() + `
             <div class="card"><div class="state">

@@ -1,16 +1,3 @@
-"""The vendor-facing page, reached by an addressed link and nothing else.
-
-Vendors have no accounts. There is no registration, no login, no password to
-reset and nothing left enabled when the relationship ends. A vendor gets a link
-carrying a token that identifies *this vendor on this tender*, and that token is
-the whole of their authentication.
-
-That is a deliberate trade. A token in a URL is a bearer secret — anyone holding
-the link can bid as that company — so it is long and random, scoped to one
-tender, revocable on its own, and never guessable from a vendor code or an id.
-Against the alternative (a login per supplier, with the password resets and
-dormant accounts that come with it) this is the smaller surface.
-"""
 import json
 import uuid
 
@@ -37,9 +24,6 @@ from app.services.storage_service import save_submission_file
 
 router = APIRouter(prefix="/vendor", tags=["vendor"])
 
-# Sanity ceilings for an endpoint anyone holding a link can post to. Both sit
-# far above any real quotation; they exist so a malformed or hostile payload
-# can't turn one POST into an unbounded number of rows.
 MAX_OFFERS = 10
 MAX_OFFER_LINES = 200
 
@@ -61,12 +45,6 @@ async def _tender_items(db: AsyncSession, tender_id: uuid.UUID) -> list[TenderIt
 
 
 async def _resolve(db: AsyncSession, token: str) -> tuple[TenderVendorInvite, Tender, Vendor]:
-    """Turn a link token into the tender it opens and the vendor it belongs to.
-
-    One 404 for every failure mode — unknown token, revoked invitation, missing
-    tender. Telling the holder of a bad link *which* it was is telling them
-    whether they've found a real token.
-    """
     invite = await db.scalar(
         select(TenderVendorInvite).where(
             TenderVendorInvite.token == token, TenderVendorInvite.revoked.is_(False)
@@ -83,13 +61,6 @@ async def _resolve(db: AsyncSession, token: str) -> tuple[TenderVendorInvite, Te
 
 @router.get("/invite/{token}", dependencies=[Depends(vendor_read_limit)])
 async def open_invite(token: str, db: AsyncSession = Depends(get_db)) -> dict:
-    """What the vendor sees when they follow their link.
-
-    The tender's own item table comes back as the shape of the form: one row
-    per requirement, with specs, quantity and notes filled in, waiting for a
-    price. The vendor prices the company's list rather than describing their
-    own in a free-text box, which is the whole reason the tender became a table.
-    """
     invite, tender, vendor = await _resolve(db, token)
 
     already = await db.scalar(
@@ -117,8 +88,6 @@ async def open_invite(token: str, db: AsyncSession = Depends(get_db)) -> dict:
         "can_submit": tender.status == TenderStatus.open
         and not _is_expired(tender)
         and already is None,
-        # Said plainly rather than left for the page to work out, so the vendor
-        # is told why the form is closed instead of finding it greyed out.
         "closed_reason": (
             "You have already submitted a quotation for this tender"
             if already is not None
@@ -128,16 +97,11 @@ async def open_invite(token: str, db: AsyncSession = Depends(get_db)) -> dict:
             if tender.status == TenderStatus.open
             else "This tender is not currently open for quotations"
         ),
-        # An offer submitted here can't be edited afterwards, and the page says
-        # so before they start rather than after they try.
         "locked_after_submit": True,
     }
 
 
 def _parse_offers(raw: str | None) -> list[OfferIn]:
-    """The offers arrive as JSON inside a multipart field, because the same
-    request carries file uploads. Malformed JSON is the vendor's problem to see,
-    so the parse error comes back rather than a bare 422."""
     if not raw or not raw.strip():
         return []
     try:
@@ -155,17 +119,6 @@ def _parse_offers(raw: str | None) -> list[OfferIn]:
 def _match_documents(
     required: list[str], labels_json: str | None, uploads: list[UploadFile]
 ) -> dict[str, UploadFile]:
-    """Pair each attached file with the requirement it answers.
-
-    Matched by an explicit label rather than by position alone: positions
-    silently shift the moment a vendor skips a slot, and a tax card filed
-    against "ISO 9001" is worse than no file at all.
-
-    Anything labelled with something the tender never asked for is dropped
-    rather than rejected - the vendor cannot craft this list by hand, so a
-    mismatch is a stale page, and a stale page should not lose them a bid whose
-    real documents are all present.
-    """
     if not required:
         return {}
     try:
@@ -182,8 +135,6 @@ def _match_documents(
             continue
         if not upload.filename:
             continue
-        # First one wins: a duplicate label is a double-attached slot, not two
-        # answers to the same question.
         matched.setdefault(label, upload)
     return matched
 
@@ -196,49 +147,17 @@ def _match_documents(
 )
 async def submit_quotation(
     token: str,
-    # All three are optional and default to what the vendor directory already
-    # holds. Asking a vendor to retype their own company's email and phone was
-    # asking them to re-enter data purchasing had already recorded — and it
-    # gave two versions of the same fact a chance to disagree, with the typed
-    # one winning. Sent only when somebody has a reason to differ, e.g. a
-    # different person handling this particular quotation.
     contact_name: str | None = Form(default=None),
     email: EmailStr | None = Form(default=None),
     phone: str | None = Form(default=None),
     notes: str | None = Form(default=None),
-    # Advance payment the vendor is asking for before delivery, as a
-    # percentage of the offer total. Part of the price of the deal, so it sits
-    # on the bid rather than being negotiated separately after somebody has
-    # already chosen on total alone.
-    #
-    # A percentage rather than a sum of money, because a quotation now carries
-    # several offers at different totals: "5,000 up front" means one thing
-    # against a 20,000 option and something else entirely against a 60,000 one,
-    # and nothing on the row would say which it was meant for. A percentage
-    # applies to whichever offer is accepted.
     deposit_percent: float = Form(default=0),
-    # A JSON array of offers, each with its own priced lines. One quotation may
-    # hold several: two brands of the same item, or a substitute for something
-    # the vendor doesn't stock.
     offers: str | None = Form(default=None),
     files: list[UploadFile] = File(default=[]),
-    # The tender's required documents, answered. `doc_labels` is a JSON array
-    # of the labels the vendor actually attached something for, in the same
-    # order as `doc_files`; a slot they left empty appears in neither, so the
-    # two lists stay in step without the browser having to send placeholders.
     doc_labels: str | None = Form(default=None),
     doc_files: list[UploadFile] = File(default=[]),
     db: AsyncSession = Depends(get_db),
 ) -> Submission:
-    """File a quotation against the tender this link opens.
-
-    The company is taken from the invitation, never from the form. A vendor
-    cannot file under another company's name because the name is not something
-    they send.
-
-    **One quotation per vendor per tender, and it cannot be changed.** A price
-    that can be revised after everyone else's is in is not a sealed bid.
-    """
     invite, tender, vendor = await _resolve(db, token)
 
     if tender.status != TenderStatus.open or _is_expired(tender):
@@ -269,9 +188,6 @@ async def submit_quotation(
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, "Price at least one item before submitting"
         )
-    # A ceiling on an unauthenticated endpoint that writes rows. Nobody puts
-    # ten genuine alternatives on one tender, and without a limit a crafted
-    # payload turns one request into as many offer rows as it likes.
     if len(parsed_offers) > MAX_OFFERS:
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
@@ -285,17 +201,12 @@ async def submit_quotation(
                 status.HTTP_400_BAD_REQUEST,
                 f"An offer can hold at most {MAX_OFFER_LINES} lines",
             )
-        # An offer's total is computed from its lines, never taken on trust:
-        # two numbers meant to agree eventually won't, and this is the one
-        # purchasing compares.
         if offer_in.items:
             offer_in.total_amount = sum(i.quantity * i.unit_price for i in offer_in.items)
         elif offer_in.total_amount is None:
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST, "An offer needs either priced lines or a total"
             )
-        # A line may only point at an item of THIS tender. Unchecked, a crafted
-        # payload could pin a price onto another tender's requirement.
         for line in offer_in.items:
             if line.tender_item_id is None:
                 continue
@@ -305,27 +216,9 @@ async def submit_quotation(
                     f"Line item {line.tender_item_id} is not part of this tender",
                 )
 
-        # Quantity is NOT capped at what was asked for. It used to be, on the
-        # reasoning that nobody ordered the extras and they would inflate a
-        # total decisions get made on. That reasoning was wrong about how
-        # vendors actually quote: a supplier with a box of ten prices the box,
-        # throws in a spare, or bundles a case with a laptop. Refusing those
-        # rejected the good-faith offer along with the typo, and purchasing is
-        # perfectly able to read "5" beside a requested 3 and decide.
-        #
-        # Under-supply was always allowed - "you want three, I have two" - and
-        # over-supply is the same kind of information. Both are the vendor
-        # telling us what they actually have.
 
-    # A vendor may answer some of the requirements and stay silent on the rest.
-    # Purchasing buys each line from whoever is best on it, so a partial
-    # quotation is a normal quotation, not a disqualified one.
     total_amount = min(o.total_amount for o in parsed_offers)
 
-    # Required means required. Purchasing wrote the list because a bid without
-    # a valid tax card is one they cannot buy from, and finding that out after
-    # the tender closes means going back to a vendor whose price is now public
-    # to the desk. Refusing it here costs the vendor a minute.
     required = [d for d in (tender.required_docs or []) if d.strip()]
     documents = _match_documents(required, doc_labels, doc_files)
     absent = [d for d in required if d not in documents]
@@ -346,9 +239,6 @@ async def submit_quotation(
         currency=tender.currency,
         vendor_id=vendor.id,
         company_name=vendor.company_name,
-        # The directory is the fallback, not the form. A vendor with no email
-        # on file is one purchasing reached another way, so this can genuinely
-        # be empty; the company name and the invite are what identify the bid.
         contact_name=(contact_name or "").strip() or vendor.company_name,
         email=(str(email) if email else (vendor.contact_email or "")).lower(),
         phone=(phone or "").strip() or (vendor.contact_phone or ""),
@@ -362,8 +252,6 @@ async def submit_quotation(
         documents=stored_documents,
     )
     db.add(submission)
-    # The UUID default is applied at INSERT, not on construction, so
-    # submission.id is None until this flush — the offers below key off it.
     await db.flush()
 
     for position, offer_in in enumerate(parsed_offers):
@@ -376,9 +264,6 @@ async def submit_quotation(
                 total_amount=offer_in.total_amount or 0,
                 currency=tender.currency,
                 notes=offer_in.notes,
-                # Appended through the relationship rather than with an offer_id
-                # of their own: the FK is populated during flush, so the lines
-                # need no second round trip.
                 items=[
                     OfferItem(
                         tender_item_id=line.tender_item_id,

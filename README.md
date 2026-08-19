@@ -1,10 +1,38 @@
-# TenderFlow Backend
+# TenderFlow
 
-FastAPI + Postgres backend. All logic and state that used to live in `AppState`
-inside `script.js` now lives here; the frontend will become a thin client that
-calls this API and renders whatever it gets back.
+An internal procurement app: a department raises a request, their manager
+approves it, purchasing takes it to vendors, offers come back, somebody is
+awarded, and the warehouse receives what turns up.
+
+FastAPI + Postgres behind a dependency-free single-page frontend. No build
+step on either side: `pip install -r requirements.txt` and open a file.
+
+## Screenshots
+
+**Purchasing's dashboard** — the four counts that decide what to do next, the
+open tenders, and the two work queues underneath: bids nobody has sorted yet,
+and bids nobody has checked. Each table scrolls inside a fixed viewport, so the
+page stays one screen however many tenders there are.
+
+![Purchasing's dashboard](docs/screenshots/purchasing-dashboard.png)
+
+**Raising a request** — the requester fills in a table of what they need, not a
+paragraph. The pills across the top are purchasing's quick-fill templates, and
+the number on each is how many rows it fills. Currency, deadline and required
+documents are deliberately absent: they are not the requester's to decide.
+
+![Raising a request](docs/screenshots/create-request.png)
+
+**Purchasing's offers desk** — every bid on one tender, grouped by vendor, with
+what each one actually quoted set against what was asked for: items answered,
+substitutes, missing, added. Purchasing can send an offer up to the manager or
+commit to it outright.
+
+![Purchasing's offers desk](docs/screenshots/purchasing-offers.png)
 
 ## Structure
+
+Paths below are relative to `backend/`; `frontend/` sits beside it.
 
 ```
 main.py           # THE ENTRYPOINT — creates the FastAPI app, mounts every router
@@ -13,7 +41,8 @@ main.py           # THE ENTRYPOINT — creates the FastAPI app, mounts every rou
 app/
   config.py       # settings loaded from .env
   database.py     # async SQLAlchemy engine/session
-  models/         # SQLAlchemy ORM tables (category.py holds the shared enum,
+  models/         # SQLAlchemy ORM tables (category.py holds the category table
+                  # and the vendor_categories join,
                   # tender_item.py the requirement table, offer.py the bids)
   schemas/        # Pydantic request/response shapes
   core/
@@ -38,6 +67,8 @@ app/
     reports.py         /api/reports/*           (finance)
     vendors.py         /api/vendors/*           (staff-only vendor directory)
     vendor.py          /api/vendor/*            (PUBLIC — registration + the submission link page)
+    categories.py      /api/categories/*        (the category list; admin writes it)
+    receiving.py       /api/receiving/*         (the warehouse)
 alembic/           # migrations
 seed.py            # one-time: departments + a single bootstrap admin
 ```
@@ -155,6 +186,55 @@ would build an `http://` link for an https-only domain. They are also
 caller-supplied, so anyone who can reach the API directly can shape the link in
 the *next* RFQ email. That is the trade being made by leaving the setting empty,
 and it is why anything long-lived should set it.
+
+## The frontend
+
+A dependency-free single-page app with no build step and no package manager.
+Open `frontend/index.html` in a browser and it runs.
+
+### Running it
+
+1. Start the backend (see **Setup** above). It listens on
+   `http://localhost:8000`.
+2. Open `index.html` directly — double-clicking works. No web server is needed.
+
+Opening from `file://` means the browser sends `Origin: null`, so the backend's
+`CORS_ORIGINS` includes `null` on purpose. Serving these files over HTTP instead
+is fine too; just add that origin to `CORS_ORIGINS` in the backend `.env`.
+
+### Pointing at a different backend
+
+`API_BASE` defaults to `http://localhost:8000/api`. To override it without
+editing `script.js`, set the global before the script loads:
+
+```html
+<script>window.TENDERFLOW_API_BASE = 'https://tenders.example.com/api';</script>
+```
+
+### Layout
+
+| File | What's in it |
+| --- | --- |
+| `index.html` | Page shell and every modal. The SPA swaps content into `#contentArea`. |
+| `script.js` | Everything else: auth, the API client, routing, and one render function per page. |
+| `style.css` | Design tokens as CSS custom properties, then component styles. |
+| `vendor.html` / `vendor.js` / `vendor.css` | The vendor's page, a separate site on purpose. See "The vendor's page is a separate site". |
+
+There is no framework. Pages are rendered with template literals into
+`innerHTML`, so anything interpolated from the API must go through `escapeHtml`
+or `escapeAttr` first.
+
+### Who sees what
+
+The sidebar is built from a per-role config in `script.js`. Three predicates
+decide access, and they are not interchangeable:
+
+- `isVendor` — outside the company; sees only the vendor portal.
+- `isEmployee` — on the payroll but with no back-office function. Raises tender
+  requests and tracks their own, nothing more.
+- `isStaff` — the roles that run the tender process. Mirrors `STAFF_ROLES` in
+  `backend/app/core/deps.py`; treating an employee as staff here just buys them
+  a screen of 403s.
 
 ## Auth model
 
@@ -881,6 +961,98 @@ change is not the place to take that back. `forwarded_by` stays null on those
 rows — nobody actually made the call, and naming a user who didn't would put a
 false signature on the record.
 
+### Categories are a table the admin owns, and a vendor has several
+
+Two problems with the `category` enum, fixed together because they shared a
+column.
+
+**Four labels is not the real list.** Goods, services, works, consulting - a
+purchasing department distinguishes electronic devices from portable devices
+from furniture, and "goods" answers none of the questions somebody picking a
+supplier actually has. Growing an enum is a migration and a deploy, so in
+practice it never grew and everything ended up filed under `goods`.
+
+**And `vendors.vendor_category` was singular.** A company selling laptops and
+desks had to be filed under one of them, and the other half of their catalogue
+was then invisible to the invite list and the basket picker - both of which
+match on category. A vendor is a candidate now if **any** of their categories is
+the tender's.
+
+`categories` is a table with `name`, `slug`, `active` and `position`;
+`vendor_categories` is the join beside it. The four old labels are seeded with
+exactly those slugs, so every tender, template and vendor keeps meaning what it
+meant - only where it is stored changed.
+
+**The slug is the stable key and the name is not.** Renaming "Goods" to "General
+goods" relabels every screen and unfiles nothing, because nothing is filed under
+the name. `CategoryUpdate` has no slug field for that reason: letting it be
+edited would silently detach everything pointing at it.
+
+**Retire, don't delete.** A retired category leaves the pickers and is refused
+for anything new, while everything already filed under it keeps reading
+correctly. `DELETE` exists but only succeeds when no tender, template or vendor
+has ever used it - a tender raised under Consulting was raised under Consulting,
+and shortening a dropdown is not a reason to rewrite that.
+
+The API carries **slugs**, not ids: readable in a request log, and already what
+the browser filters on, so nothing has to translate. `Tender.category` and
+`Tender.category_name` survive as read-only properties over the relationship, so
+every schema, screen and email template that used to read a string still reads a
+string.
+
+Reading the list is open to everyone internal - it is the vocabulary of the
+request form, the vendor directory and the basket picker at once. Writing is
+admin only.
+
+### Quick-fill templates
+
+A template is a stencil for a purchase that recurs: the laptop refresh, the
+quarterly stationery order. Purchasing writes them; anyone raising a request
+presses one and gets the requirement table already filled in, instead of
+retyping fourteen rows from memory and getting two wrong.
+
+The model and the endpoints already existed and nothing used them. What went in
+is the two screens that make them real:
+
+- **The templates desk** (purchasing): a category picker over a table, the same
+  shape as the offers and bids desks because it answers the same shape of
+  question - "what do we have for this kind of purchase?" A row opens the
+  editor.
+- **Pills on the request form.** A dropdown would have been less markup and
+  worse: the value of a template is being reminded it exists at the moment you
+  were about to type its contents out by hand, and a collapsed control reminds
+  nobody of anything. Each pill shows how many rows it fills, which is the one
+  number that decides whether pressing it beats typing.
+
+**The pill fills the form; it does not submit it.** The requester sees exactly
+what is about to be raised and can change any of it - which is what makes a
+template safe to press without reading it first. Verified by raising one with an
+edited quantity and a renamed title, both of which survived.
+
+The template editor is the tender form with four more boxes, and the item-row
+editor is **literally the same code** (`setItemRows` and friends now take the
+tbody they work on). Two differently-shaped editors for one table is how the two
+drift apart. The four extra boxes are the parts of a tender a request form
+deliberately never asks for: currency, required documents, how far out the
+deadline usually is, and which department it belongs to.
+
+Those first two travel via `TenderCreate.template_id`. The name, category and
+items come off the form as usual - the requester saw those and may have changed
+them, and a template silently overriding what somebody typed would be worse than
+no template at all - but the currency and the required documents have no boxes
+on that form, and this is how they come across.
+
+Nothing on the resulting tender points back at the template, so editing the
+template next quarter cannot rewrite a tender already out with vendors.
+
+**One bug fell out of building this.** `tender_templates.scoring_criteria` was
+NOT NULL with no default, and `a4e7b31c9d60` dropped the same column from
+`tenders` while missing this one. The model has had no such attribute since, so
+every INSERT omitted it and every INSERT failed - creating a template had been
+impossible for as long as scoring had been gone, silently, because nothing in
+the app created one until this screen existed and somebody pressed Save.
+`a9d3e07c5b41` drops it.
+
 ### The request belongs to the department that raised it
 
 Who may rewrite a tender changed in both directions at once.
@@ -1438,17 +1610,36 @@ offer statuses already say it.
 
 ### The purchasing manager also runs a purchasing desk
 
-`pmgr1` is `role=manager` in the Purchasing department, and the nav is keyed on
-the role — so they got the department manager's sidebar, with no Submissions
-page on it. On a team this size that is wrong twice over: they cover the bids
-themselves when nobody else can, and they are already trusted with the vendor
-names everywhere else.
+`pmgr1` is `role=manager` in the Purchasing department, and both the nav and
+every guard were keyed on the role alone — so they got the department manager's
+sidebar and a 403 from every purchasing endpoint. On a team this size that is
+wrong twice over: they cover the desk themselves when nobody else can, and they
+are already trusted with the vendor names everywhere else.
 
-`setupRoleBasedNav` splices a **Submissions** item into the manager nav only
-when `isPurchasingManager(user)`. A department manager still does not get one,
-and that is deliberate rather than incidental: the bids on their own request
-are somebody else's work, and the vendor names on that screen are exactly what
-the blind comparison keeps away from them.
+**A purchasing manager is a manager *and* a purchasing officer**, so they need
+both sets of rights rather than a splice of one item into the other. Two
+matching pieces do that:
+
+- `require_purchasing(*roles)` in `core/scope.py` — passes anyone in `roles`,
+  **or** the purchasing manager. Every guard that used to read
+  `require_roles("admin", "procurement")` on a purchasing action now reads
+  `require_purchasing("admin", "procurement")`: tenders, templates, vendors,
+  invites, awards, submissions, emails, and the three purchasing steps on
+  offers. Admin-only (`users`, `audit`, `categories`) and finance-only
+  (`reports`) are untouched, as is the manager's own shortlist step.
+- `canPurchase(user)` in `script.js` — the same predicate on the browser side,
+  replacing nine copies of `['admin', 'procurement'].includes(role)`. Nine
+  places is nine chances to update eight of them.
+
+The sidebar is a config of its own, `PURCHASING_MANAGER_NAV`, rather than a
+role config with items spliced in: they carry the manager's Pending Reviews and
+Decision History **and** purchasing's Manage Tenders, Submissions, Vendor
+Directory, Templates and the email screens.
+
+A department manager still gets none of that, and that is deliberate rather
+than incidental: the bids on their own request are somebody else's work, and
+the vendor names on those screens are exactly what the blind comparison keeps
+away from them.
 
 ### Tender-scoped screens start empty from the sidebar
 
@@ -1683,7 +1874,10 @@ python -m alembic upgrade head && python seed.py && python dev_accounts.py
 `dev_accounts.py` creates one account per desk, all with the password
 `pass1234`, and attaches each to the department that gives them their
 authority. **Local development only** — it exists for a database you can throw
-away.
+away, and it is gitignored for exactly that reason: a file that hands out one
+shared password to eight accounts has no business in a clone. Write your own
+against the table below, or create the accounts through `/api/users` as the
+seeded admin.
 
 | user | role | department |
 |---|---|---|
@@ -1773,25 +1967,17 @@ showed up when something actually exercised the route.
 
 - The Offers desk and the Basket page overlap: the manager shortlists on the
   first, purchasing builds on the second, and neither links to the other.
-- **Splitting one line across vendors** is the open half of partial quantities:
-  a vendor can now say "two of the three", but the basket can't yet buy those
-  two here and the third there. See the vendor section above for what it needs.
 - `tenders.awarded_vendor_submission_id` and the win/lose emails only fire when
   a basket came from **one** vendor. A split basket writes
   `awarded_vendor_name = "3 vendors"` and emails nobody, because telling a
   vendor they lost a tender they partly won would be wrong. Per-vendor award
   notices are still to write.
-- No frontend yet for `/api/templates` — the endpoints exist, `script.js`
-  doesn't call them. The item table and the urgent flag are wired now: the
-  request form is the table, and the manager sets urgent in the same dialog
-  where they set the deadline. The vendor bid form still posts a flat
-  `total_amount`, which the backend accepts and stores as a single offer, so
-  multi-offer bids can only be filed via the API today.
+- The vendor bid form still posts a flat `total_amount`, which the backend
+  accepts and stores as a single offer, so multi-offer bids can only be filed
+  via the API today.
 - Still to come from the purchasing meeting: **per-category item columns** set
-  by purchasing (stationery needs no model column, tablets do), and
-  **quickfill** — a category's standard order prefilled for the requester to
-  edit, replacing whole-table templates. Both change the item table that now
-  exists, so they build on it rather than replacing it.
+  by purchasing (stationery needs no model column, tablets do). Quick-fill is
+  done — see "Quick-fill templates" above.
 - Pressing a template no longer sets a deadline either, so
   `tender_templates.default_deadline_days` is currently unused by the backend.
   It is meant to prefill the manager's approve dialog; nothing reads it yet.

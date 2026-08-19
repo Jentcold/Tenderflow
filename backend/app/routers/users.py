@@ -14,9 +14,6 @@ from app.schemas.user import UserCreate, UserOut, UserUpdate
 
 router = APIRouter(prefix="/users", tags=["users"], dependencies=[Depends(require_roles("admin"))])
 
-# A vendor user is meaningless without the company profile beside it, and only
-# POST /api/vendor/register writes both. Letting an admin hand-make one here
-# would leave an account that every /api/vendor route 404s on.
 VENDOR_ROLE_MESSAGE = (
     "Vendor accounts are created through POST /api/vendor/register, which also "
     "captures the company profile"
@@ -81,10 +78,6 @@ async def update_user(
     if not user:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "User not found")
 
-    # Both directions are blocked: promoting a vendor to staff would strand
-    # their company profile, and demoting staff to vendor would create the
-    # profile-less account the create guard exists to prevent. Deactivate the
-    # account instead.
     if payload.role and payload.role != user.role and UserRole.vendor in (payload.role, user.role):
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
@@ -117,9 +110,6 @@ async def update_user(
         user.role = payload.role
     if payload.status:
         user.status = payload.status
-    # Checked against the model's own value, not truthiness: `None` here has to
-    # be able to mean "detach this person from their department", and a falsy
-    # test would make that the one edit the API can't express.
     if "department_id" in payload.model_fields_set:
         user.department_id = payload.department_id
 

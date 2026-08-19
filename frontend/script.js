@@ -1,31 +1,9 @@
-// ============================================
-// CONFIG
-// ============================================
-// Point this at wherever the backend is actually running.
-// Where the API lives, worked out from where this page was served.
-//
-// It used to be hardcoded to http://localhost:8000, which is fine on the
-// machine running the stack and useless everywhere else: on somebody else's
-// laptop "localhost" is THEIR laptop, so the pages arrive and every request
-// dies. That is the whole failure mode behind putting a tunnel in front of the
-// static server.
-//
-// So: if this page came off the standalone static server (or a file:// path),
-// the API is the separate process on :8000. Otherwise the backend served this
-// page itself and the API is on the same origin - a relative path, which
-// follows whatever host the browser actually used, tunnel included, and needs
-// no CORS because there is no cross origin.
-//
-// window.TENDERFLOW_API_BASE still overrides both, for anything neither guess
-// covers.
 const API_BASE = window.TENDERFLOW_API_BASE || (
     location.protocol === 'file:' || location.port === '5500'
         ? 'http://localhost:8000/api'
         : '/api'
 );
 
-// Mirrors core/pagination.py. MAX_PAGE_SIZE is the server's ceiling — asking for
-// more is a 422, not a silent clamp.
 const PAGE_SIZE = 25;
 const MAX_PAGE_SIZE = 200;
 
@@ -34,17 +12,13 @@ const AppState = {
     currentUser: null,
     currentPage: 'dashboard',
     departments: [],
-    // The admin's category list. Loaded once at sign-in like the
-    // departments beside it, because three screens need it to render at
-    // all - the request form, the vendor directory and the basket picker -
-    // and each fetching it separately is three requests for one list that
-    // changes about twice a year.
+
     categories: [],
     tenders: [],
     submissions: [],
     unreadCount: 0,
-    vendorProfile: null, // vendor accounts only
-    uploadedFiles: [] // vendor submission form, holds real File objects
+    vendorProfile: null,
+    uploadedFiles: []
 };
 
 const roleNames = {
@@ -57,18 +31,8 @@ const roleNames = {
     employee: 'Employee'
 };
 
-// Both the tender and the vendor tables draw from one Postgres enum, so these
-// are the only four values either side will ever accept.
 const CATEGORIES = ['goods', 'services', 'works', 'consulting'];
 
-// ngrok's free tier puts an interstitial "you are about to visit" page in front
-// of the first request from a new visitor. A browser navigation clicks through
-// it; a fetch() just receives the warning HTML where it expected JSON, and the
-// app looks broken for reasons nothing in it can explain. This header opts out.
-//
-// Sent only when the API is same-origin, which is exactly the tunnelled case.
-// Adding a custom header to a cross-origin request would turn every simple call
-// into a preflighted one for no reason, so the :5500 setup never sees it.
 const SAME_ORIGIN_API = API_BASE.startsWith('/');
 
 function tunnelHeaders(headers) {
@@ -80,22 +44,14 @@ function isVendor(user) {
     return !!user && user.role === 'vendor';
 }
 
-// An employee raises tender requests and waits on the manager. They are on the
-// payroll but hold no back-office function, so they sit outside isStaff.
 function isEmployee(user) {
     return !!user && user.role === 'employee';
 }
 
-// The back-office roles that run the tender process. Mirrors STAFF_ROLES in
-// core/deps.py — anything gated on this here is gated on require_staff there,
-// so treating an employee as staff would just buy them a screen full of 403s.
 function isStaff(user) {
     return !!user && !isVendor(user) && !isEmployee(user);
 }
 
-// ============================================
-// API CLIENT
-// ============================================
 async function apiFetch(path, options = {}) {
     const headers = tunnelHeaders(Object.assign({}, options.headers || {}));
     const isForm = options.body instanceof FormData;
@@ -121,7 +77,7 @@ async function apiFetch(path, options = {}) {
         try {
             const data = await res.json();
             if (data.detail) detail = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
-        } catch (e) { /* not json */ }
+        } catch (e) {  }
         throw new Error(detail);
     }
 
@@ -139,9 +95,6 @@ function qs(params) {
     return encoded ? `?${encoded}` : '';
 }
 
-// Every list endpoint answers with {items, total, limit, offset}. Going through
-// a helper that insists on that shape means a call site which forgets to unwrap
-// fails here with a clear message, rather than silently rendering nothing.
 async function apiList(path, params = {}) {
     const page = await apiFetch(`${path}${qs({ limit: PAGE_SIZE, offset: 0, ...params })}`);
     if (!page || !Array.isArray(page.items)) {
@@ -150,12 +103,6 @@ async function apiList(path, params = {}) {
     return page;
 }
 
-// Walks every page and returns one flat array.
-//
-// Only for the approval screens, which decide what to show from flags the API
-// can't filter on (manager_approved, supply_chain_approved, ...). Those pages
-// would show a half-truth off a single page — "no pending reviews" when the
-// pending one sits on page 2. Everything with a real filter should page instead.
 const FETCH_ALL_CAP = 2000;
 
 async function apiAll(path, params = {}) {
@@ -189,11 +136,6 @@ async function apiDownload(path, filename) {
     URL.revokeObjectURL(url);
 }
 
-// ============================================
-// PAGING
-// ============================================
-// One cursor per table, kept outside the render so re-rendering after an edit
-// lands you back on the page you were looking at instead of jumping to the top.
 const pagers = {};
 const pagerReloaders = {};
 
@@ -202,8 +144,6 @@ function pagerState(key, overrides) {
     return pagers[key];
 }
 
-// Filters change what "page 3" even means, so any filter change resets to the
-// first page — otherwise a narrow filter lands you past the end of its results.
 function pagerFilter(key, overrides) {
     return pagerState(key, { ...overrides, offset: 0 });
 }
@@ -231,8 +171,6 @@ function renderPager(key, total) {
     `;
 }
 
-// For screens that select rows by flags the API can't filter on, so they hold
-// the whole set and page it here. Same control, same feel, just client-side.
 function pageLocally(key, rows) {
     const { limit, offset } = pagerState(key);
     return rows.slice(offset, offset + limit);
@@ -247,13 +185,8 @@ function pagerGo(key, direction) {
     if (reload) reload();
 }
 
-// ============================================
-// INITIALIZATION
-// ============================================
 document.addEventListener('DOMContentLoaded', () => {
-    // A vendor arriving with `?invite=` belongs on vendor.html, which is a page
-    // of its own and shares nothing with this file. Anyone who lands here with
-    // one followed a stale link from before the split.
+
     const inviteToken = new URLSearchParams(window.location.search).get('invite');
     if (inviteToken) {
         window.location.replace(`vendor.html?invite=${encodeURIComponent(inviteToken)}`);
@@ -282,8 +215,7 @@ function clearSession() {
     AppState.vendorProfile = null;
     AppState.unreadCount = 0;
     myRequestRows = [];
-    // Cursors are per-account: signing in as someone else shouldn't drop you on
-    // page 4 of a list you've never seen.
+
     Object.keys(pagers).forEach(key => delete pagers[key]);
     localStorage.removeItem('tf_token');
 }
@@ -296,9 +228,6 @@ function setupEventListeners() {
     document.getElementById('createUserForm').addEventListener('submit', (e) => e.preventDefault());
 }
 
-// ============================================
-// AUTHENTICATION
-// ============================================
 async function handleLogin(e) {
     e.preventDefault();
     const username = document.getElementById('loginEmail').value.trim();
@@ -344,9 +273,6 @@ async function onLoginSuccess(user, isFreshLogin) {
     document.getElementById('userRoleDisplay').textContent = roleNames[user.role] || user.role;
     document.getElementById('userAvatar').textContent = user.name.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2);
 
-    // Departments label tenders all through the internal UI, and an employee's
-    // request form has to offer them. Only vendors are shut out of the
-    // endpoint, so only they would get a guaranteed 403.
     if (internal) {
         try {
             AppState.departments = await apiFetch('/departments');
@@ -359,14 +285,8 @@ async function onLoginSuccess(user, isFreshLogin) {
         AppState.categories = [];
     }
 
-    // Only now, because the warehouse nav is chosen by department code and
-    // that isn't known until the fetch above has returned. Running this any
-    // earlier gave a warehouse account the plain requester sidebar.
     setupRoleBasedNav();
 
-    // Nothing is ever addressed to `vendor`, so the bell would sit permanently
-    // empty for them. Employees do get mail — addressed to them personally
-    // rather than to their role — so they keep it.
     document.querySelector('.notification-wrapper').style.display = internal ? '' : 'none';
 
     navigateTo(staff || isWarehouse(user) ? 'dashboard' : 'my-requests');
@@ -382,10 +302,9 @@ function showLoginPage() {
 }
 
 async function logout() {
-    try { await apiFetch('/auth/logout', { method: 'POST' }); } catch (e) { /* ignore */ }
+    try { await apiFetch('/auth/logout', { method: 'POST' }); } catch (e) {  }
     clearSession();
-    // Drops ?tender=... so logging out of a shared submission link doesn't
-    // bounce you straight back onto that tender's public page.
+
     if (window.location.search) {
         window.location.replace(window.location.pathname);
         return;
@@ -393,17 +312,30 @@ async function logout() {
     showLoginPage();
 }
 
-
-// ============================================
-// NAVIGATION
-// ============================================
-// Everyone on the payroll can raise a request now, not just the `employee`
-// role, so this section is shared by every internal nav that doesn't already
-// have the full Manage Tenders screen.
 const REQUESTER_SECTION = { section: 'My Requests', items: [
     { id: 'new-request', icon: 'fa-plus-circle', label: 'New Request' },
     { id: 'my-requests', icon: 'fa-file-contract', label: 'My Requests' }
 ]};
+
+const PURCHASING_MANAGER_NAV = [
+    { section: 'Main', items: [
+        { id: 'dashboard', icon: 'fa-chart-pie', label: 'Dashboard' },
+        { id: 'review', icon: 'fa-check-circle', label: 'Pending Reviews' },
+        { id: 'tenders', icon: 'fa-file-contract', label: 'Manage Tenders' },
+        { id: 'submissions', icon: 'fa-inbox', label: 'Submissions' },
+        { id: 'offers', icon: 'fa-scale-balanced', label: 'Offers' },
+        { id: 'history', icon: 'fa-history', label: 'Decision History' }
+    ]},
+    { section: 'Purchasing', items: [
+        { id: 'vendors', icon: 'fa-building', label: 'Vendor Directory' },
+        { id: 'templates', icon: 'fa-wand-magic-sparkles', label: 'Templates' }
+    ]},
+    { section: 'Settings', items: [
+        { id: 'email-templates', icon: 'fa-envelope', label: 'Email Templates' },
+        { id: 'email-log', icon: 'fa-history', label: 'Email Log' }
+    ]},
+    REQUESTER_SECTION
+];
 
 const WAREHOUSE_NAV = [
     { section: 'Main', items: [
@@ -428,6 +360,7 @@ function setupRoleBasedNav() {
             { section: 'Administration', items: [
                 { id: 'users', icon: 'fa-users-cog', label: 'User Management' },
                 { id: 'categories', icon: 'fa-tags', label: 'Categories' },
+                { id: 'templates', icon: 'fa-wand-magic-sparkles', label: 'Templates' },
                 { id: 'vendors', icon: 'fa-building', label: 'Vendor Directory' },
                 { id: 'audit', icon: 'fa-history', label: 'Audit Log' }
             ]}
@@ -438,7 +371,8 @@ function setupRoleBasedNav() {
                 { id: 'tenders', icon: 'fa-file-contract', label: 'Manage Tenders' },
                 { id: 'submissions', icon: 'fa-inbox', label: 'Submissions' },
                 { id: 'offers', icon: 'fa-scale-balanced', label: 'Offers' },
-                { id: 'vendors', icon: 'fa-building', label: 'Vendor Directory' }
+                { id: 'vendors', icon: 'fa-building', label: 'Vendor Directory' },
+                { id: 'templates', icon: 'fa-wand-magic-sparkles', label: 'Templates' }
             ]},
             { section: 'Settings', items: [
                 { id: 'email-templates', icon: 'fa-envelope', label: 'Email Templates' },
@@ -449,18 +383,6 @@ function setupRoleBasedNav() {
             { section: 'Main', items: [
                 { id: 'dashboard', icon: 'fa-chart-pie', label: 'Dashboard' },
                 { id: 'review', icon: 'fa-check-circle', label: 'Pending Reviews' },
-                // The purchasing manager runs a purchasing desk as well as
-                // approving on it — on a small team they cover the bids
-                // themselves. A department manager gets no Submissions page:
-                // the bids on their request are somebody else's work, and the
-                // vendor names on that screen are exactly what the blind
-                // comparison keeps away from them.
-                ...(isPurchasingManager(AppState.currentUser)
-                    ? [{ id: 'submissions', icon: 'fa-inbox', label: 'Submissions' }]
-                    : []),
-                // The manager's other desk: shortlist the offers that came back
-                // on a tender they approved. A purchasing manager gets the same
-                // page, but it shows them their own step of the chain.
                 { id: 'offers', icon: 'fa-scale-balanced', label: 'Offers' },
                 { id: 'history', icon: 'fa-history', label: 'Decision History' }
             ]},
@@ -482,12 +404,7 @@ function setupRoleBasedNav() {
             ]},
             REQUESTER_SECTION
         ],
-        // No `vendor` entry: vendors don't sign in at all. Any account still
-        // carrying the role is refused at /auth/login, so nothing here would
-        // ever be rendered for one.
-        // Also no dashboard, for the same reason: its stats come from
-        // /submissions and the company-wide /tenders, neither of which an
-        // employee may read. Their world is the requests they filed themselves.
+
         employee: [
             { section: 'Main', items: [
                 { id: 'my-requests', icon: 'fa-file-contract', label: 'My Requests' },
@@ -496,12 +413,11 @@ function setupRoleBasedNav() {
         ]
     };
 
-    // The warehouse is a department, not a role: that account is an ordinary
-    // `employee` attached to Warehouse, so keying off the role alone would
-    // have given them the requester's nav and nothing to receive with.
     const config = isWarehouse(AppState.currentUser)
         ? WAREHOUSE_NAV
-        : (navConfigs[role] || navConfigs.admin);
+        : isPurchasingManager(AppState.currentUser)
+            ? PURCHASING_MANAGER_NAV
+            : (navConfigs[role] || navConfigs.admin);
     navContainer.innerHTML = config.map(section => `
         <div class="nav-section">
             <div class="nav-section-title">${section.section}</div>
@@ -515,13 +431,6 @@ function setupRoleBasedNav() {
     `).join('');
 }
 
-// `keepContext` is what tells a tender-scoped page whether it was reached from
-// the sidebar or from a link about one particular tender.
-//
-// From the sidebar the answer is "nothing selected": arriving at Offers and
-// finding whichever tender the code picked for you is how somebody ends up
-// filtering bids on the wrong one. From a dashboard row or a tender link, the
-// caller knows exactly which tender is meant and says so.
 function navigateTo(page, { keepContext = false } = {}) {
     if (!keepContext) {
         if (page === 'offers') offersTenderId = null;
@@ -540,7 +449,8 @@ function navigateTo(page, { keepContext = false } = {}) {
         'email-templates': 'Email Templates', 'email-log': 'Email Log',
         vendors: 'Vendor Directory',
         'my-requests': 'My Requests', 'new-request': 'New Request',
-        receiving: 'Receiving', receipts: 'Received', categories: 'Categories'
+        receiving: 'Receiving', receipts: 'Received', categories: 'Categories',
+        templates: 'Quick-fill Templates'
     };
     document.getElementById('pageTitle').textContent = titles[page] || 'Dashboard';
     renderPage(page);
@@ -574,9 +484,6 @@ function showLoadError(container, err, retryFn) {
     `;
 }
 
-// ============================================
-// PAGE RENDERING DISPATCH
-// ============================================
 async function renderPage(page) {
     const contentArea = document.getElementById('contentArea');
     showLoading(contentArea);
@@ -590,8 +497,7 @@ async function renderPage(page) {
             case 'offers': await renderOffersDeskPage(contentArea); break;
             case 'review': await renderManagerReviewPage(contentArea); break;
             case 'history': await renderManagerHistoryPage(contentArea); break;
-            // Kept as an alias: 'approvals' is what supply chain's saved links
-            // and older notifications point at, and it is the same desk now.
+
             case 'approvals': await renderOffersDeskPage(contentArea); break;
             case 'approved': await renderApprovedTendersPage(contentArea); break;
             case 'notifications': await renderFinanceNotificationsPage(contentArea); break;
@@ -602,11 +508,11 @@ async function renderPage(page) {
             case 'my-requests': await renderMyRequestsPage(contentArea); break;
             case 'new-request': await renderNewRequestPage(contentArea); break;
             case 'categories': await renderCategoriesPage(contentArea); break;
+            case 'templates': await renderTemplatesPage(contentArea); break;
             case 'receiving': await renderReceivingPage(contentArea); break;
             case 'receipts': await renderReceiptsPage(contentArea); break;
             default:
-                // Warehouse first: that account is role=employee, and the
-                // employee arm below would have sent it to My Requests.
+
                 if (isWarehouse(AppState.currentUser)) await renderDashboard(contentArea);
                 else if (isStaff(AppState.currentUser)) await renderDashboard(contentArea);
                 else if (isEmployee(AppState.currentUser)) await renderMyRequestsPage(contentArea);
@@ -617,18 +523,12 @@ async function renderPage(page) {
     }
 }
 
-// A category's display name from its slug. Everything in the API carries the
-// slug - it is the stable key - and everything on screen should carry the name,
-// which is the half the admin can rename.
 function categoryName(slug) {
     if (!slug) return '';
     const hit = (AppState.categories || []).find(c => c.slug === slug);
     return hit ? hit.name : slug;
 }
 
-// <option> list for a category picker, with `selected` on the current value.
-// Includes the current value even when it has been retired, so opening an old
-// record doesn't silently re-file it under whatever sorts first.
 function categoryOptions(selected) {
     const list = [...(AppState.categories || [])];
     if (selected && !list.some(c => c.slug === selected)) {
@@ -639,8 +539,6 @@ function categoryOptions(selected) {
     ).join('');
 }
 
-// The chips a vendor's categories are shown as. A vendor supplies several
-// things now, so one badge would be a lie about four fifths of them.
 function categoryChips(categories) {
     if (!categories || !categories.length) {
         return '<span style="color: var(--text-muted);">none</span>';
@@ -653,25 +551,6 @@ function deptName(id) {
     return d ? d.name : 'Not Set';
 }
 
-// ============================================
-// DASHBOARD
-// ============================================
-// ============================================
-// DASHBOARDS
-// ============================================
-// One dashboard per desk, not one dashboard with things hidden.
-//
-// The old screen showed everybody the same four tender counters and a list of
-// recent tenders. For purchasing that is the job; for everyone else it was a
-// summary of somebody else's work, and the thing they actually came to do was
-// two clicks away behind a nav item. A purchasing manager approves offers — so
-// that is the big table, and the tender list they occasionally need is a small
-// panel underneath it.
-//
-// The shape is the same everywhere so the app doesn't feel like five apps: one
-// wide table of what is waiting on you, then two narrower panels — a secondary
-// list on the left, your own recent activity on the right.
-
 async function renderDashboard(container) {
     const user = AppState.currentUser;
     if (isWarehouse(user))          return renderWarehouseDashboard(container);
@@ -681,17 +560,13 @@ async function renderDashboard(container) {
     return renderProcurementDashboard(container);
 }
 
-// Every offer on every tender, grouped. There is no company-wide offers
-// endpoint — /offers is scoped and anonymised per tender, and a global variant
-// would be a second thing to keep in step with it — so this walks the tenders
-// the same way the offers desk does.
 async function collectOffers() {
     const tenders = (await apiAll('/tenders')).filter(t => (t.submission_count || 0) > 0);
     const rows = await Promise.all(tenders.map(async tender => {
         try {
             return { tender, offers: await apiFetch(`/offers?tender_id=${tender.id}`) };
         } catch (err) {
-            return null;   // a 403 here is the department scope doing its job
+            return null;
         }
     }));
     return rows.filter(r => r && r.offers.length > 0);
@@ -704,8 +579,6 @@ async function myRecentActivity(limit = 8) {
         return [];
     }
 }
-
-// ---------------------------------------------------------------- components
 
 function dashPanel(title, subtitle, bodyHtml, opts = {}) {
     return `
@@ -761,7 +634,6 @@ function tenderMiniRows(tenders, limit = 6) {
         </tr>`).join('');
 }
 
-// Rows of offers waiting at one desk, across every tender.
 function offerWaitingRows(rows, verb, path) {
     return rows.map(({ tender, offer }) => `
         <tr class="offer-row ${tender.urgent ? 'is-urgent' : ''}">
@@ -781,10 +653,6 @@ function offerWaitingRows(rows, verb, path) {
         </tr>`).join('');
 }
 
-// Baskets waiting at one desk, rendered into the same "waiting on you" table
-// as the offers. A basket and an offer are two ways of buying the same tender,
-// and splitting them across two screens is what left the purchasing manager
-// holding a notification with nowhere to go.
 function basketWaitingRows(awards, verb, path) {
     return awards.map(a => `
         <tr class="offer-row ${a.urgent ? 'is-urgent' : ''}">
@@ -804,14 +672,6 @@ function basketWaitingRows(awards, verb, path) {
         </tr>`).join('');
 }
 
-// Baskets that were bought without this desk being asked.
-//
-// An urgent tender skips both approving desks, and for a while that meant the
-// basket vanished: it was `approved`, so it wasn't waiting anywhere, and
-// neither the purchasing manager nor supply chain had any screen it appeared
-// on. They were notified once and then it was gone. Urgency is a reason to
-// skip somebody's approval, not a reason to hide the purchase from them - so
-// it shows here, as a record with nothing to press.
 function basketSkippedRows(awards) {
     return awards.map(a => `
         <tr class="offer-row ${a.urgent ? 'is-urgent' : ''}">
@@ -830,8 +690,6 @@ function basketSkippedRows(awards) {
         </tr>`).join('');
 }
 
-// The panel the rows above go in. Rendered by both desks that can be skipped,
-// and by neither of them when nothing was.
 function skippedBasketPanel(awards) {
     if (!awards.length) return '';
     return dashPanel(
@@ -842,21 +700,15 @@ function skippedBasketPanel(awards) {
     );
 }
 
-// Jump to the offers desk with a particular tender already selected, so a
-// dashboard row lands on the thing it was describing rather than on whatever
-// the desk would have picked for itself.
 function openOffersFor(tenderId) {
     offersTenderId = tenderId;
     navigateTo('offers', { keepContext: true });
 }
 
-// The same, for the bid-checking screen.
 function openSubmissionsFor(tenderId) {
     submissionsTenderId = tenderId;
     navigateTo('submissions', { keepContext: true });
 }
-
-// ------------------------------------------------------- purchasing manager
 
 async function renderPurchasingManagerDashboard(container) {
     const [withOffers, open, activity, baskets, done] = await Promise.all([
@@ -868,8 +720,6 @@ async function renderPurchasingManagerDashboard(container) {
     ]);
     const skipped = done.filter(a => a.urgent_skipped);
 
-    // Their step of the chain: the department manager shortlisted, purchasing
-    // committed to one, and it is now sitting on this desk.
     const waiting = [];
     withOffers.forEach(({ tender, offers }) => offers
         .filter(o => o.status === 'purchasing_ok')
@@ -897,8 +747,6 @@ async function renderPurchasingManagerDashboard(container) {
     `;
 }
 
-// ------------------------------------------------------ department manager
-
 async function renderDepartmentManagerDashboard(container) {
     const [pending, withOffers, activity] = await Promise.all([
         apiAll('/tenders', { status: 'pending_approval' }),
@@ -906,9 +754,6 @@ async function renderDepartmentManagerDashboard(container) {
         myRecentActivity(),
     ]);
 
-    // Tenders where offers are in front of them and no shortlist has gone back
-    // yet. Once they send one the tender leaves this list, the same way it
-    // leaves the offers desk — the decision is sealed.
     const undecided = withOffers.filter(({ offers }) =>
         offers.some(o => o.status === 'forwarded') &&
         !offers.some(o => ['selected', 'purchasing_ok', 'purchasing_manager_ok', 'approved'].includes(o.status)));
@@ -951,8 +796,6 @@ async function renderDepartmentManagerDashboard(container) {
     `;
 }
 
-// ------------------------------------------------------------- supply chain
-
 async function renderSupplyChainDashboard(container) {
     const [withOffers, activity, baskets, done] = await Promise.all([
         collectOffers(),
@@ -968,9 +811,6 @@ async function renderSupplyChainDashboard(container) {
         .filter(o => o.status === 'purchasing_manager_ok')
         .forEach(offer => waiting.push({ tender, offer })));
 
-    // Tenders their own department raised, and where each one has got to.
-    // Supply chain approve everybody's purchases; this is the panel about
-    // their own, which is the part nobody else is watching for them.
     const mine = withOffers.filter(({ tender }) =>
         myDept && tender.department_id === myDept.id);
 
@@ -1007,8 +847,6 @@ async function renderSupplyChainDashboard(container) {
     `;
 }
 
-// ---------------------------------------------------------------- warehouse
-
 async function renderWarehouseDashboard(container) {
     const [incoming, receipts, activity] = await Promise.all([
         apiFetch('/receiving/incoming').catch(() => []),
@@ -1016,10 +854,6 @@ async function renderWarehouseDashboard(container) {
         myRecentActivity(),
     ]);
 
-    // The bottom-left panel: deliveries this warehouse checked in with
-    // something wrong. Chosen over a plain "recently received" list because
-    // that one is read once and forgotten, while a delivery three boxes short
-    // is the warehouse's own open loop — the thing they will be asked about.
     const flagged = receipts.filter(r => r.problem_lines > 0);
 
     container.innerHTML = `
@@ -1061,19 +895,6 @@ async function renderWarehouseDashboard(container) {
     `;
 }
 
-// ------------------------------------------------ purchasing, admin, finance
-
-// Purchasing's own desk, in the same three-panel shape as the others.
-//
-// The top table is the tender pipeline, because for purchasing that genuinely
-// is the job — they raise them, invite the vendors and chase the deadlines.
-// Underneath: the offers still needing a first pass on the left, and the bids
-// still needing checking on the right.
-//
-// Both bottom panels are grouped by tender and each row jumps straight to that
-// tender already selected. That is the whole point of them: the offers screen
-// and the submissions screen are one-tender-at-a-time, and the thing that used
-// to go wrong was arriving at either with somebody else's tender loaded.
 async function renderProcurementDashboard(container) {
     const [recent, open, allSubs, pendingSubs, withOffers] = await Promise.all([
         apiList('/tenders', { limit: 6 }),
@@ -1083,18 +904,13 @@ async function renderProcurementDashboard(container) {
         collectOffers(),
     ]);
 
-    const canManage = ['admin', 'procurement'].includes(AppState.currentUser?.role);
+    const canManage = canPurchase();
 
-    // Tenders with offers nobody has filtered yet. `pending` is precisely
-    // "arrived, and purchasing hasn't decided whether the manager sees it".
     const needFiltering = withOffers
         .map(({ tender, offers }) => ({ tender, n: offers.filter(o => o.status === 'pending').length }))
         .filter(row => row.n > 0)
         .sort((a, b) => b.n - a.n);
 
-    // Unchecked bids, grouped the same way. Until one is validated nothing
-    // inside it reaches the offers desk at all, so this panel is upstream of
-    // the one beside it.
     const byTender = new Map();
     pendingSubs.forEach(sub => {
         if (!byTender.has(sub.tender_id)) byTender.set(sub.tender_id, []);
@@ -1183,17 +999,13 @@ async function renderProcurementDashboard(container) {
     `;
 }
 
-// ============================================
-// TENDERS
-// ============================================
 async function renderTendersPage(container) {
     pagerReloaders.tenders = () => renderTendersPage(container);
     const state = pagerState('tenders');
-    // Status filtering moved server-side with paging: filtering one page in the
-    // browser would have hidden matches sitting on every other page.
+
     const page = await apiList('/tenders', { ...pagerParams('tenders'), status: state.status });
     AppState.tenders = page.items;
-    const canManage = ['admin', 'procurement'].includes(AppState.currentUser?.role);
+    const canManage = canPurchase();
     const tab = (value, label) =>
         `<div class="tab ${(state.status || 'all') === value ? 'active' : ''}" onclick="filterTenders('${value}')">${label}</div>`;
 
@@ -1232,7 +1044,7 @@ function tenderStatusLabel(status) {
 
 function renderTendersRows(tenders) {
     if (tenders.length === 0) return `<tr><td colspan="9" style="text-align: center; padding: 40px;">No tenders found</td></tr>`;
-    const canManage = ['admin', 'procurement'].includes(AppState.currentUser?.role);
+    const canManage = canPurchase();
     return tenders.map(tender => {
         const isExpired = isTenderExpired(tender);
         return `
@@ -1267,19 +1079,10 @@ function filterTenders(status) {
     renderTendersPage(document.getElementById('contentArea'));
 }
 
-// There is no single tender link any more. Each invited vendor gets their own,
-// issued from the "who gets asked" screen — a shared one would make every bid
-// anonymous at exactly the point attribution matters.
-
 function isTenderExpired(tender) {
-    // The API computes this against the server clock, which is the clock the
-    // deadline was written on. Falling back to the browser's would disagree by
-    // the viewer's UTC offset — telling someone in another timezone a tender is
-    // still open hours after the server stopped taking bids.
+
     if (typeof tender.is_expired === 'boolean') return tender.is_expired;
-    // No deadline means the manager hasn't approved it yet, so there is
-    // nothing to have expired. Comparing against a null date would say
-    // "expired" for every request still waiting on its manager.
+
     if (!tender.deadline_date) return false;
     return new Date() > new Date(`${tender.deadline_date}T${tender.deadline_time}`);
 }
@@ -1293,7 +1096,7 @@ async function viewTender(tenderId) {
         return;
     }
     const isExpired = isTenderExpired(tender);
-    const canManage = ['admin', 'procurement'].includes(AppState.currentUser?.role);
+    const canManage = canPurchase();
 
     document.getElementById('viewTenderContent').innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 16px;">
@@ -1342,11 +1145,6 @@ async function viewTender(tenderId) {
     openModal('viewTenderModal');
 }
 
-// ------------------------------------------------------- purchasing's terms
-
-// Currency and required documents used to sit on the request form, where the
-// person asking for a laptop had to answer them. They are purchasing's call,
-// so they live here instead - on the tender, after it has been picked up.
 const CURRENCIES = ['EGP', 'USD', 'EUR', 'GBP', 'SAR', 'AED', 'KWD', 'QAR', 'BHD', 'OMR'];
 
 async function openPurchasingTerms(tenderId) {
@@ -1398,17 +1196,8 @@ async function openPurchasingTerms(tenderId) {
     );
 }
 
-// ---------------------------------------------------- the requirement table
-
-// The request form is a table, not a paragraph. Rows are held in the DOM
-// rather than in a JS array: an input the user is halfway through typing is
-// the truth, and mirroring it into state would mean deciding which copy wins
-// every time a row is added or removed.
-
 function itemRowHtml(item) {
-    // escapeAttr, not escapeHtml: these go inside value="...", and escapeHtml
-    // leaves double quotes alone. An item called `24" monitor` would close the
-    // attribute early and lose everything after the inch mark.
+
     const it = item || {};
     return `
         <tr class="item-row">
@@ -1426,21 +1215,19 @@ function itemRowHtml(item) {
         </tr>`;
 }
 
-// The row numbers are painted on rather than stored, so deleting row 2 of four
-// leaves 1-2-3 behind instead of 1-3-4.
-function renumberItemRows() {
-    const body = document.getElementById('tenderItemsBody');
+function renumberItemRows(bodyId = 'tenderItemsBody') {
+    const body = typeof bodyId === 'string' ? document.getElementById(bodyId) : bodyId;
     if (!body) return;
     Array.from(body.querySelectorAll('tr.item-row')).forEach((tr, i) => {
         tr.querySelector('.col-num').textContent = i + 1;
     });
 }
 
-function addItemRow(item) {
-    const body = document.getElementById('tenderItemsBody');
+function addItemRow(item, bodyId = 'tenderItemsBody') {
+    const body = typeof bodyId === 'string' ? document.getElementById(bodyId) : bodyId;
     if (!body) return;
     body.insertAdjacentHTML('beforeend', itemRowHtml(item));
-    renumberItemRows();
+    renumberItemRows(body);
     if (!item) {
         const rows = body.querySelectorAll('tr.item-row');
         rows[rows.length - 1].querySelector('.item-name').focus();
@@ -1448,25 +1235,25 @@ function addItemRow(item) {
 }
 
 function removeItemRow(btn) {
-    const body = document.getElementById('tenderItemsBody');
+
+    const body = btn.closest('tbody');
     btn.closest('tr').remove();
-    // Never leave the table empty - an empty table reads as a broken form
-    // rather than as a request with nothing in it.
-    if (!body.querySelector('tr.item-row')) addItemRow();
-    renumberItemRows();
+
+    if (!body.querySelector('tr.item-row')) addItemRow(null, body);
+    renumberItemRows(body);
 }
 
-function setItemRows(items) {
-    const body = document.getElementById('tenderItemsBody');
+function setItemRows(items, bodyId = 'tenderItemsBody') {
+    const body = typeof bodyId === 'string' ? document.getElementById(bodyId) : bodyId;
     if (!body) return;
     body.innerHTML = '';
     const rows = (items && items.length) ? items : [null];
     rows.forEach(item => body.insertAdjacentHTML('beforeend', itemRowHtml(item)));
-    renumberItemRows();
+    renumberItemRows(body);
 }
 
-function collectItemRows() {
-    const body = document.getElementById('tenderItemsBody');
+function collectItemRows(bodyId = 'tenderItemsBody') {
+    const body = typeof bodyId === 'string' ? document.getElementById(bodyId) : bodyId;
     if (!body) return [];
     return Array.from(body.querySelectorAll('tr.item-row')).map(tr => {
         const val = sel => (tr.querySelector(sel).value || '').trim();
@@ -1477,14 +1264,10 @@ function collectItemRows() {
             quantity: parseFloat(tr.querySelector('.item-qty').value),
             unit: val('.item-unit') || 'pcs',
         };
-    // A row nobody typed an item name into is a row they added and changed
-    // their mind about, not an error to stop them on.
+
     }).filter(row => row.name);
 }
 
-// Shows which department the request will be filed under. Read-only: it comes
-// from the account, and the backend takes it from there too, so this can only
-// ever report what will happen rather than change it.
 function showRequesterDepartment() {
     const el = document.getElementById('tenderDepartmentLabel');
     if (!el) return;
@@ -1499,20 +1282,12 @@ function openCreateTenderModal() {
     openModal('createTenderModal');
 }
 
-// Who may rewrite the request itself. Mirrors tenders.py::_load_for_edit, and
-// the server is the one that enforces it - this only decides whether a button
-// that would 403 is drawn at all.
-//
-// Purchasing is deliberately absent. The request is the requesting
-// department's statement of what they need; the currency and the required
-// documents are purchasing's, and those live on the Terms dialog.
 function canEditTender(tender) {
     const user = AppState.currentUser;
     if (!user || !tender) return false;
     if (user.role === 'admin') return true;
     if (user.role !== 'manager' || isPurchasingManager(user)) return false;
-    // Their window closes when vendors can see it: editing an open tender
-    // moves the goalposts under offers already in flight.
+
     return ['pending_approval', 'rejected'].includes(tender.status);
 }
 
@@ -1525,6 +1300,9 @@ async function openEditTenderModal(tenderId) {
         return;
     }
     resetCreateTenderModal();
+
+    const pills = document.getElementById('templatePills');
+    if (pills) pills.innerHTML = '';
     document.getElementById('editTenderId').value = tender.id;
     document.getElementById('tenderName').value = tender.name;
     fillTenderCategories(tender.category);
@@ -1536,9 +1314,6 @@ async function openEditTenderModal(tenderId) {
     openModal('createTenderModal');
 }
 
-// Three fields, because three fields are all the requester decides. The
-// department comes from their account, the currency and required documents are
-// purchasing's, and the deadline is set by the manager who approves it.
 function collectTenderFormPayload() {
     const name = document.getElementById('tenderName').value.trim();
     const category = document.getElementById('tenderCategory').value;
@@ -1558,12 +1333,10 @@ function collectTenderFormPayload() {
         return null;
     }
 
-    return { name, category, items };
+    const templateId = (document.getElementById('tenderTemplateId') || {}).value || null;
+    return { name, category, items, ...(templateId ? { template_id: templateId } : {}) };
 }
 
-// Both sides of the tender form land here. Procurement goes back to the
-// company-wide list; an employee has no access to that page, so they go back
-// to their own requests instead.
 function afterTenderSave() {
     return isEmployee(AppState.currentUser) ? 'my-requests' : 'tenders';
 }
@@ -1599,11 +1372,11 @@ async function updateTender(tenderId) {
 function resetCreateTenderModal() {
     document.getElementById('createTenderForm').reset();
     document.getElementById('editTenderId').value = '';
-    // The category list is the admin's now, so the options are written at open
-    // time rather than sitting in the markup. `reset()` above would not clear
-    // them, but rebuilding is what keeps a category added five minutes ago
-    // from being missing until the page is reloaded.
+
     fillTenderCategories(null);
+    document.getElementById('tenderTemplateId').value = '';
+
+    loadTemplatePills();
     showRequesterDepartment();
     setItemRows(null);
     const forEmployee = isEmployee(AppState.currentUser);
@@ -1614,8 +1387,6 @@ function resetCreateTenderModal() {
         : '<i class="fas fa-plus"></i> Create Tender';
 }
 
-
-// The category <select> on the create/edit tender form.
 function fillTenderCategories(selected) {
     const box = document.getElementById('tenderCategory');
     if (!box) return;
@@ -1651,7 +1422,6 @@ async function reopenTender(tenderId) {
     });
 }
 
-// A tender the manager sent back can be revised and put in front of them again.
 async function resubmitTender(tenderId) {
     showConfirmDialog('Resubmit for Approval', 'This sends the tender back to the department manager for a fresh decision. Make sure you have addressed their feedback first.', async () => {
         try {
@@ -1684,8 +1454,7 @@ async function resetTenderCycle(tenderId) {
 }
 
 async function extendDeadline(tenderId) {
-    // Fetched rather than read out of AppState.tenders: that only ever holds the
-    // page currently on screen, and this is reachable from the detail modal.
+
     const tender = await apiFetch(`/tenders/${tenderId}`).catch(() => null);
     document.getElementById('extendDeadlineCurrent').innerHTML = tender
         ? `Current: <strong>${formatDeadline(tender)}</strong>`
@@ -1715,23 +1484,8 @@ async function saveExtendedDeadline(tenderId) {
     } catch (err) { showToast('error', 'Error', err.message); }
 }
 
-
-
-// ============================================
-// EMPLOYEE REQUESTS
-// ============================================
-// An employee raises a tender request and waits on the manager. They never see
-// the company-wide tender list, the bids, or the award — /tenders/my-requests
-// is their only window, and it returns just the requests they filed.
-//
-// The rows are kept here because that endpoint is also the only way to read one
-// back: GET /tenders/{id} is staff-only, so the edit form has to repopulate
-// from the list it was already given rather than re-fetching a single tender.
 let myRequestRows = [];
 
-// The two states in which a request is still the requester's to change. Mirrors
-// EMPLOYEE_EDITABLE in routers/tenders.py — once a manager opens it, vendors
-// are bidding against what it says.
 const EMPLOYEE_EDITABLE = ['pending_approval', 'rejected'];
 
 async function renderMyRequestsPage(container) {
@@ -1861,9 +1615,6 @@ function viewMyRequest(requestId) {
     openModal('viewTenderModal');
 }
 
-// Populates the shared tender form from the row already in hand. The staff
-// version of this fetches /tenders/{id} first; an employee is not allowed to,
-// which is why my-requests returns the whole request body rather than a summary.
 function openEditRequestModal(requestId) {
     const r = findMyRequest(requestId);
     if (!r) return;
@@ -1907,28 +1658,10 @@ function renderNewRequestPage(container) {
             </div>
         </div>
     `;
-    // The form itself lives in the shared tender modal, so there is one
-    // definition of it rather than a second that can drift.
+
     openCreateTenderModal();
 }
 
-// Purchasing's first stop. A vendor's bid arrives as a *submission* - an
-// envelope with a company, a contact, the documents the tender demanded, and
-// one or more priced offers inside it.
-//
-// It used to be one tender at a time, chosen from a dropdown at the top. That
-// shape came from the days when this screen validated bids: you worked one
-// tender, said yes or no to each envelope, and moved on. Validation is gone,
-// so what is left is a reference screen, and a reference screen answering
-// "what has come in?" should not open on nothing and make you name a tender
-// before it will tell you anything.
-//
-// So: every tender that has bids, in one table. Press one and its bids open in
-// a dialog - big enough to read a whole quotation in, and scrolled rather than
-// paged, because comparing four companies means looking up and down the list.
-// Press a bid and you land on the offers desk with that tender already
-// selected, which is where the actual decision gets made. This screen is the
-// way in, not a stop.
 let submissionsTenderId = null;
 let submissionBriefs = {};
 
@@ -1996,9 +1729,6 @@ async function renderSubmissionsPage(container) {
         </div>
     `;
 
-    // Arrived from a dashboard row about one tender, rather than from the
-    // sidebar: open that tender's bids rather than making them find it again
-    // in a list they were just pointed away from.
     if (submissionsTenderId && tenders.some(t => t.id === submissionsTenderId)) {
         const id = submissionsTenderId;
         submissionsTenderId = null;
@@ -2006,9 +1736,6 @@ async function renderSubmissionsPage(container) {
     }
 }
 
-// One tender's bids, in a dialog. Deliberately not a page: this is a thing you
-// look at and then act on somewhere else, and putting it behind a navigation
-// step would mean losing the list you were reading down.
 async function openTenderSubmissions(tenderId) {
     const tender = (AppState.tenders || []).find(t => t.id === tenderId)
         || await apiFetch(`/tenders/${tenderId}`).catch(() => null);
@@ -2026,9 +1753,6 @@ async function openTenderSubmissions(tenderId) {
     } catch (err) { showToast('error', 'Error', err.message); return; }
     AppState.submissions = subs;
 
-    // The offers inside each bid, one request per bid. Fine for the handful a
-    // tender attracts, and the reason this is per-tender rather than a single
-    // company-wide fetch that would make one request per bid in the company.
     const briefs = await Promise.all(subs.map(sub =>
         apiFetch(`/submissions/${sub.id}/offers`).catch(() => [])
     ));
@@ -2067,10 +1791,6 @@ async function openTenderSubmissions(tenderId) {
     `;
 }
 
-// A bid is pressed to get to the offers desk, not to open a detail sheet.
-// Comparing is the job this screen exists to start, and it happens over there
-// against every other vendor's lines - reading one company's quotation in
-// isolation is the rarer thing, so it keeps a button rather than the row.
 function openOffersForSubmission(tenderId) {
     closeModal('tenderSubmissionsModal');
     openOffersFor(tenderId);
@@ -2086,25 +1806,12 @@ function renderSubmissionsRows(submissions, tender, docs) {
         const offers = submissionBriefs[sub.id] || [];
         const swapped = offers.reduce((n, o) => n + o.replacement_items, 0);
 
-        // The cheapest of this vendor's offers, and the two counts read off
-        // that same offer.
-        //
-        // The column used to show `submissions.total_amount`, the envelope
-        // figure the vendor typed on the form. Since a bid can hold several
-        // offers, that number answers no useful question - what purchasing
-        // wants down this column is "what would this supplier cost us", and
-        // the honest answer is their best one. Substitutes and missing follow
-        // it so the row describes one coherent proposal rather than a mixture
-        // of all of them.
         const best = offers.length
             ? offers.reduce((a, b) => (b.total_amount < a.total_amount ? b : a))
             : null;
         const lowest = best ? best.total_amount : sub.total_amount;
         const missing = best ? best.missing_items : null;
 
-        // Which of the tender's demanded documents actually arrived. A bid
-        // filed before the tender asked for any shows every slot empty, which
-        // is the truth: nobody asked them for it.
         const filed = sub.documents || {};
         const absent = docs.filter(d => !filed[d]);
 
@@ -2137,12 +1844,6 @@ function renderSubmissionsRows(submissions, tender, docs) {
     }).join('');
 }
 
-// Opens the bid: every offer inside it, priced line by line.
-//
-// It used to be a four-column summary, because this screen was where a bid got
-// validated and the question was only "is this genuine". Validation is gone,
-// so what is left is the reference screen - "what exactly did this company
-// send us" - and that wants the whole thing, not a precis of it.
 async function viewSubmission(subId) {
     let sub, offers;
     try {
@@ -2262,10 +1963,6 @@ function downloadSubmissionFile(storedPath) {
     apiDownload(`/submissions/files/${storedPath}`, fileDisplayName(storedPath));
 }
 
-
-// ============================================
-// USER MANAGEMENT
-// ============================================
 async function renderUsersPage(container) {
     pagerReloaders.users = () => renderUsersPage(container);
     const state = pagerState('users');
@@ -2322,10 +2019,6 @@ function filterUsersByRole(role) {
     renderUsersPage(document.getElementById('contentArea'));
 }
 
-// The role field is the one part of a vendor account an admin can't touch:
-// converting to or from vendor would strand the company profile that only
-// POST /vendor/register writes, and the API rejects it. Everything else on the
-// account — name, login, email, password, status — is fair game.
 function setRoleFieldLocked(locked) {
     const select = document.getElementById('userRole');
     select.disabled = locked;
@@ -2339,7 +2032,7 @@ function openCreateUserModal() {
     document.getElementById('createUserForm').reset();
     document.getElementById('editUserId').value = '';
     document.getElementById('userPassword').setAttribute('required', 'required');
-    // reset() clears values, not the disabled flag left behind by an edit.
+
     setRoleFieldLocked(false);
     openModal('createUserModal');
 }
@@ -2407,9 +2100,6 @@ function toggleUserStatus(userId, userName, currentStatus) {
     });
 }
 
-// ============================================
-// AUDIT LOG
-// ============================================
 async function renderAuditLog(container) {
     pagerReloaders.audit = () => renderAuditLog(container);
     const state = pagerState('audit');
@@ -2457,19 +2147,11 @@ function filterAuditByUser(userName) {
     renderAuditLog(document.getElementById('contentArea'));
 }
 
-// The action filter is an exact match on the server, which is why the table's
-// action badges are clickable — typing "Tender Created" by hand is easy to get
-// subtly wrong and an almost-right filter just returns nothing.
 function filterAuditByAction(action) {
     pagerFilter('audit', { action: action.trim() || null });
     renderAuditLog(document.getElementById('contentArea'));
 }
-// ============================================
-// DEPARTMENT MANAGER - TENDER APPROVAL
-// ============================================
-// The manager decides on the tender itself here, not on the offers. A new
-// tender sits at `pending_approval` and is invisible to vendors until they
-// approve it; sending it back returns it to Procurement to revise and resubmit.
+
 async function renderManagerReviewPage(container) {
     pagerReloaders.review = () => renderManagerReviewPage(container);
     const tenders = await apiAll('/tenders', { status: 'pending_approval' });
@@ -2517,11 +2199,6 @@ async function renderManagerReviewPage(container) {
     `;
 }
 
-// Which "view" a tender opens into depends on who is looking. A manager gets
-// the review screen, so the eye on the dashboard lands them somewhere they can
-// actually decide instead of on a read-only card with no way forward.
-// Everyone else gets the procurement detail, which carries the vendor link and
-// the management actions they need and a manager does not.
 function openTenderFor(tenderId) {
     if (['manager', 'admin'].includes(AppState.currentUser?.role)) {
         return openTenderReview(tenderId);
@@ -2529,11 +2206,6 @@ function openTenderFor(tenderId) {
     return viewTender(tenderId);
 }
 
-// ------------------------------------------------------------ review a request
-
-// The requirement, read-only. The same table the requester filled in and the
-// same one the vendor will price - shown rather than summarised, because "4
-// items" tells an approver nothing they can approve on.
 function requirementTable(items) {
     if (!items || !items.length) {
         return '<p style="color: var(--text-muted);">No items on this request.</p>';
@@ -2562,10 +2234,6 @@ function requirementTable(items) {
     `;
 }
 
-// One screen for the whole decision: what was asked for, who asked, and the
-// three answers. Reached from the pending list and from the eye on the
-// dashboard, so the manager never has to approve something they've only seen
-// the title of.
 async function openTenderReview(tenderId) {
     let tender;
     try {
@@ -2636,10 +2304,6 @@ async function openTenderReview(tenderId) {
     openModal('viewTenderModal');
 }
 
-// Approving and dating the tender are one action. The requester says what they
-// need; the manager says by when. Asking for the deadline here rather than on
-// the request form is the whole point - it is the manager's commitment to
-// vendors, not the requester's wish.
 function approveTenderAsManager(tenderId) {
     const suggested = new Date();
     suggested.setDate(suggested.getDate() + 14);
@@ -2686,17 +2350,13 @@ function approveTenderAsManager(tenderId) {
                 navigateTo('review');
             } catch (err) {
                 showToast('error', 'Error', err.message);
-                // Keep the dialog up so the dates they typed aren't lost.
+
                 return false;
             }
         }
     );
 }
 
-// Both answers hit the same endpoint and both leave the tender `rejected`.
-// `final` is the whole difference: sent back, the requester edits and
-// resubmits; declined, resubmit is refused and a new request is the only way
-// back. Two buttons because they are two different answers, not two wordings.
 function sendTenderBack(tenderId, { final }) {
     openReasonModal({
         title: final ? 'Reject Request' : 'Send Back for Edit',
@@ -2723,12 +2383,9 @@ function sendTenderBack(tenderId, { final }) {
 function rejectTenderAsManager(tenderId) { sendTenderBack(tenderId, { final: false }); }
 function declineTenderAsManager(tenderId) { sendTenderBack(tenderId, { final: true }); }
 
-// 'history' is in the manager's nav but had no case in the render dispatch, so
-// the menu item used to quietly land on the dashboard.
 async function renderManagerHistoryPage(container) {
     pagerReloaders.history = () => renderManagerHistoryPage(container);
-    // There's no "decided by me" filter on the API, so the flags are read off
-    // the whole set and the result is paged here instead.
+
     const decided = (await apiAll('/tenders')).filter(t => t.manager_approved || t.manager_rejected);
     const rows = pageLocally('history', decided);
 
@@ -2768,17 +2425,6 @@ async function renderManagerHistoryPage(container) {
     `;
 }
 
-// ============================================
-// OFFERS DESK - shortlist, then the approval chain
-// ============================================
-// One page serving four desks. Which buttons appear is decided by the offer's
-// own status and the viewer's role, so nobody is shown an action the API would
-// refuse.
-//
-// The department manager's view is anonymised by the API, not here: /offers
-// never carries a company name, contact or file list, so there is nothing on
-// this page to accidentally render.
-
 const OFFER_STATUS_META = {
     pending:               { label: 'With purchasing',      badge: 'badge-secondary' },
     forwarded:             { label: 'With the manager',     badge: 'badge-info' },
@@ -2791,9 +2437,6 @@ const OFFER_STATUS_META = {
 
 const MAX_SHORTLIST = 3;
 
-// Unsaved rank choices, keyed by tender id then offer id. Held outside the DOM
-// so a re-render (after rejecting one offer, say) doesn't silently drop a
-// half-made shortlist.
 const shortlistDraft = {};
 
 function currentDepartment() {
@@ -2802,16 +2445,15 @@ function currentDepartment() {
     return (AppState.departments || []).find(d => d.id === user.department_id) || null;
 }
 
-// The purchasing manager is a manager whose department is Purchasing - there
-// is no role for it. Matched on the department's code, never its display name,
-// so renaming the department doesn't quietly move the approval step.
+function canPurchase(user = AppState.currentUser) {
+    return !!user && (['admin', 'procurement'].includes(user.role) || isPurchasingManager(user));
+}
+
 function isPurchasingManager(user) {
     const dept = currentDepartment();
     return user && user.role === 'manager' && dept && dept.code === 'purchasing';
 }
 
-// Which single offer status this user is the approver for, or null if their
-// job here is shortlisting rather than approving.
 function deskFor(user) {
     if (!user) return null;
     if (user.role === 'procurement') return { status: 'selected', path: 'purchasing-approve', verb: 'Approve & send on' };
@@ -2824,29 +2466,10 @@ function canShortlist(user) {
     return user && (user.role === 'manager' && !isPurchasingManager(user));
 }
 
-// Purchasing's first pass. A bid now lands with them before it reaches the
-// department manager: they weed out the ones that miss the specification, the
-// duplicates and the corrections, and send on what is actually comparable.
-// Deliberately a different question from `deskFor` - purchasing has two jobs on
-// this screen, filtering first and committing to one of the shortlist later.
 function canForward(user) {
-    return !!user && (user.role === 'procurement' || user.role === 'admin');
+    return canPurchase(user);
 }
 
-// How an offer departs from the tender's own list. Three kinds, and they are
-// genuinely different questions:
-//
-//   substituted - priced against a tender line, but offering something else
-//   added       - priced, but answering no tender line at all: a bundle, a
-//                 cable thrown in, a gift. Not a fault; often the reason one
-//                 offer beats another
-//   missing     - a tender line nobody priced. The dangerous one, because it
-//                 is invisible: it isn't a row in the offer, so a reader
-//                 comparing two tables sees nothing at all where the gap is
-//
-// Derived here rather than on the server: the tender's item list is already on
-// the page, and computing it in one place beats a second set of counters the
-// API would have to keep in step with the first.
 function offerGaps(offer, tender) {
     const items = offer.items || [];
     const wanted = (tender && tender.items) || [];
@@ -2863,17 +2486,9 @@ function offerItemsTable(offer, currency, tender) {
     }
     const gaps = offerGaps(offer, tender);
 
-    // The basket shortcut, on purchasing's screen only and only while there is
-    // still something to decide. Once the tender is awarded the basket is
-    // history, and an "add" button on it would offer to change a purchase that
-    // has already been made.
-    const canBasket = ['admin', 'procurement'].includes(AppState.currentUser?.role)
+    const canBasket = canPurchase()
         && tender && tender.status !== 'awarded';
 
-    // A substitute row is coloured, not labelled. The badge that used to sit
-    // beside the name added a word to every row that had one and made the
-    // table harder to scan than the thing it was flagging; colour says the
-    // same thing without taking a column's worth of attention.
     return `
         <div class="table-container">
             <table class="offer-items">
@@ -2929,9 +2544,6 @@ function offerItemsTable(offer, currency, tender) {
     `;
 }
 
-// One offer, one row. It used to be a card each - a heading, a price block, a
-// badge and the whole item table stacked per offer - which meant comparing
-// three bids was a scrolling exercise. The lines live behind a click now.
 function offerRow(tender, offer, opts) {
     const meta = OFFER_STATUS_META[offer.status] || { label: offer.status, badge: '' };
     const draft = (shortlistDraft[tender.id] || {})[offer.id] || '';
@@ -3027,12 +2639,9 @@ async function saveShortlist(tenderId) {
         showToast('error', 'Too many', `Shortlist at most ${MAX_SHORTLIST} offers`);
         return;
     }
-    // Order is the ranking: the API reads position in the array, not the number
-    // typed here, so they are sorted before sending.
+
     const offer_ids = entries.sort((a, b) => Number(a[1]) - Number(b[1])).map(([id]) => id);
-    // Sending an empty list used to withdraw the shortlist. It can't any more:
-    // the list is sealed once sent, so an empty one would seal the tender with
-    // nothing on it and need purchasing to unpick it.
+
     if (offer_ids.length === 0) {
         showToast('error', 'Nothing ranked', 'Give at least one offer a preference number');
         return;
@@ -3047,10 +2656,6 @@ async function saveShortlist(tenderId) {
     } catch (err) { showToast('error', 'Error', err.message); }
 }
 
-// Read straight off the checkboxes rather than out of a draft object. The
-// whole set is replaced on every call, so what is ticked on screen when the
-// button is pressed IS the answer - keeping a shadow copy would only give it
-// something to disagree with.
 async function sendForward(tenderId) {
     const boxes = [...document.querySelectorAll(`input[data-forward][data-tender="${tenderId}"]`)];
     const offer_ids = boxes.filter(b => b.checked).map(b => b.dataset.offer);
@@ -3075,8 +2680,6 @@ async function sendForward(tenderId) {
         } catch (err) { showToast('error', 'Error', err.message); }
     };
 
-    // Un-ticking is the one direction worth a second look: the manager may
-    // already be reading the list.
     if (offer_ids.length < already) {
         showConfirmDialog('Take offers back',
             `${already - offer_ids.length} offer(s) will disappear from the manager's list. `
@@ -3087,10 +2690,6 @@ async function sendForward(tenderId) {
     await send();
 }
 
-// The only way a sealed shortlist reopens. Purchasing isn't rejecting the
-// offers here - they may well be ranked again - they are saying this ordering
-// won't do. The reason goes to the manager, because "try again" with nothing
-// attached invites the same three back.
 function sendShortlistBack(tenderId) {
     openReasonModal({
         title: 'Send the shortlist back',
@@ -3112,13 +2711,6 @@ function sendShortlistBack(tenderId) {
     });
 }
 
-// Purchasing committing to an offer without the department manager's answer.
-//
-// Two shapes of the same latitude: taking one the manager saw but didn't rank,
-// and taking one they were never sent. Both are allowed, and both are confirmed
-// first - not because either is wrong, but because the manager's review is the
-// thing being skipped and that should be a decision rather than a stray click.
-// They are told afterwards either way, which is what makes the latitude safe.
 function takeOfferDirectly(tenderId, offerId, status) {
     const neverAsked = status === 'pending';
     showConfirmDialog(
@@ -3162,8 +2754,6 @@ function rejectOffer(tenderId, offerId) {
     });
 }
 
-// Which tender's offers are on screen. Held across re-renders so approving one
-// offer doesn't bounce the reviewer back to the first tender in the list.
 let offersTenderId = null;
 
 async function renderOffersDeskPage(container) {
@@ -3176,14 +2766,11 @@ async function renderOffersDeskPage(container) {
     const tenders = (await apiAll('/tenders')).filter(t => (t.submission_count || 0) > 0);
     AppState.tenders = tenders;
 
-    // One request per tender with bids on it. Deliberately not batched into a
-    // single endpoint: /offers is scoped and anonymised per tender, and a
-    // company-wide variant would be a second thing to keep in step with it.
     const withOffers = await Promise.all(tenders.map(async tender => {
         try {
             return { tender, offers: await apiFetch(`/offers?tender_id=${tender.id}&include_rejected=true`) };
         } catch (err) {
-            // A 403 here is the department scope doing its job, not an error.
+
             return null;
         }
     }));
@@ -3191,11 +2778,6 @@ async function renderOffersDeskPage(container) {
     const rows = withOffers.filter(row => row && row.offers.length > 0);
     let live = rows.filter(row => row.offers.some(o => o.status !== 'rejected'));
 
-    // Once a manager has sent their shortlist, that tender leaves their screen.
-    // The list is sealed on the server too; taking it off the page as well is
-    // the honest version - a table you can still re-rank on, that then refuses
-    // to save, is worse than no table. It comes back if purchasing sends the
-    // shortlist back to them.
     const shortlistSent = (row) => row.offers.some(o =>
         ['selected', 'purchasing_ok', 'purchasing_manager_ok', 'approved'].includes(o.status));
     const sealedAway = shortlisting && !isAdmin ? live.filter(shortlistSent).length : 0;
@@ -3203,8 +2785,7 @@ async function renderOffersDeskPage(container) {
 
     const waitingOnMe = (row) => {
         if (isAdmin) return true;
-        // Purchasing has two jobs here, and the filtering one comes first: an
-        // untouched bid needs them before it needs anybody else.
+
         if (forwarding && row.offers.some(o => o.status === 'pending')) return true;
         if (desk) return row.offers.some(o => o.status === desk.status);
         if (shortlisting) return row.offers.some(o => o.status === 'forwarded' || o.status === 'selected');
@@ -3228,20 +2809,11 @@ async function renderOffersDeskPage(container) {
         return;
     }
 
-    // Nothing is chosen for you when you arrive from the sidebar - see
-    // navigateTo. The desk used to open on whichever tender it judged most
-    // urgent, which is a good guess and still the wrong thing to do: filtering
-    // bids on a tender you didn't mean to open is the one mistake this screen
-    // makes expensive. Coming from a dashboard row, the tender is already set
-    // and this leaves it alone.
     if (offersTenderId && !live.some(r => r.tender.id === offersTenderId)) {
         offersTenderId = null;
     }
     const current = live.find(r => r.tender.id === offersTenderId) || null;
 
-    // The picker replaces a page of stacked cards, one per tender. Reviewing
-    // is a one-tender-at-a-time job; showing all of them at once meant
-    // scrolling past three tenders to reach the one you were asked about.
     const options = `<option value="" ${offersTenderId ? '' : 'selected'}>Choose a tender&hellip;</option>`
         + live.map(r => {
         const mine = waitingOnMe(r) ? ' • waiting on you' : '';
@@ -3279,45 +2851,21 @@ async function renderOffersDeskPage(container) {
     const shortlistedCount = offers.filter(o => o.manager_rank).length;
 
     const notYetSent = offers.filter(o => o.status === 'pending').length;
-    // Non-rejected only. A rejected offer keeps its forwarded_at - that is a
-    // record of what happened to it - but it is not sitting with the manager,
-    // and counting it told them they had four offers to rank when three of
-    // them were dead.
+
     const sentUp = offers.filter(o => o.forwarded_at && o.status !== 'rejected').length;
     const hasShortlist = offers.some(o => o.status === 'selected');
 
-    // Has the manager answered on this tender? Anything at `selected` or beyond
-    // means they have: they ranked, and purchasing is working through the
-    // result. While that is true there is nothing to send them - the forward
-    // bar disappears rather than sitting there inviting a second round.
-    //
-    // It comes back on its own when the answer is undone: a send-back, or
-    // purchasing rejecting the picked offer, drops everything to `forwarded`
-    // and this goes false again. That is the "resend" case, and it needs no
-    // separate flag because the state already says it.
     const managerReplied = offers.some(o =>
         ['selected', 'purchasing_ok', 'purchasing_manager_ok', 'approved'].includes(o.status));
 
     const rowOpts = (offer) => ({
         forwarding,
-        // No `notValidated` any more. The tick box used to grey itself out and
-        // read "Not validated" until somebody had ticked the bid off on the
-        // Submissions page - the client half of a gate that no longer exists on
-        // the server. Removing the server check on its own left this behind,
-        // still refusing to send anything up and still pointing at a button
-        // that had been taken away.
-        // An offer the manager has already acted on can't be pulled back with a
-        // tick box - that would strand their decision. The box goes grey and
-        // the reject button is the way out.
+
         forwardLocked: !!offer.forwarded_at && offer.status !== 'forwarded',
         shortlisting: shortlisting || isAdmin,
         approvable: !!(approvableStatus && offer.status === approvableStatus)
             || (isAdmin && ['selected', 'purchasing_ok', 'purchasing_manager_ok'].includes(offer.status))
-            // Purchasing may commit to an offer the manager never ranked, and
-            // to one they were never even shown. Sometimes a bid is plainly
-            // better on every line, and a shortlist-and-rank round trip to
-            // hear "yes, that one" costs days and settles nothing. The manager
-            // is told either way - see takeOfferDirectly.
+
             || (forwarding && ['pending', 'forwarded'].includes(offer.status)),
         directPick: forwarding && ['pending', 'forwarded'].includes(offer.status),
         deskPath: desk ? desk.path : ({
@@ -3332,24 +2880,14 @@ async function renderOffersDeskPage(container) {
             : (desk ? desk.verb : 'Approve & send on'),
         rejectable: offer.status !== 'rejected'
             && (isAdmin
-                // Throwing a bid out during the first pass is part of filtering:
-                // it misses the spec, it's a duplicate, the vendor withdrew. Done
-                // with a reason, rather than by silently never forwarding it.
+
                 || (forwarding && offer.status === 'pending')
                 || (shortlisting && offer.status === 'forwarded')
                 || (desk && offer.status === desk.status)
-                // Purchasing own the withdraw-and-re-award cycle now, at every
-                // step from their own commitment onwards. Supply chain still
-                // refuses at their own desk, which the line above covers.
+
                 || (forwarding && ['purchasing_ok', 'purchasing_manager_ok', 'approved'].includes(offer.status)))
     });
 
-    // Purchasing read this screen grouped by supplier; everybody else reads it
-    // by price. The manager's view has no vendor to group by at all - the API
-    // sends them null - and grouping is exactly what their blind comparison is
-    // meant to prevent. For purchasing the opposite is true: they invited these
-    // vendors, and "who sent what" is the question the flat list made hardest,
-    // especially when one supplier has filed three of the five offers.
     const groupByVendor = forwarding && visible.some(o => o.vendor_company);
 
     let body;
@@ -3362,9 +2900,7 @@ async function renderOffersDeskPage(container) {
             if (!groups.has(key)) groups.set(key, []);
             groups.get(key).push(offer);
         });
-        // Groups ordered by their own cheapest offer, and offers within a group
-        // still by price, so the cheapest thing on the tender is still the
-        // first row on the screen.
+
         body = [...groups.entries()]
             .sort((a, b) => Math.min(...a[1].map(o => o.total_amount))
                           - Math.min(...b[1].map(o => o.total_amount)))
@@ -3508,13 +3044,9 @@ async function renderApprovedTendersPage(container) {
     `;
 }
 
-// ============================================
-// FINANCE NOTIFICATIONS & REPORTS
-// ============================================
 async function renderFinanceNotificationsPage(container) {
     pagerReloaders.notifications = () => renderFinanceNotificationsPage(container);
-    // The unread tally is its own endpoint: a page of rows can't tell you how
-    // many unread ones sit on the pages you aren't looking at.
+
     const [page, unread] = await Promise.all([
         apiList('/notifications', pagerParams('notifications')),
         apiFetch('/notifications/unread-count')
@@ -3585,8 +3117,7 @@ async function markAllFinanceRead() {
 
 async function renderFinanceReportsPage(container) {
     pagerReloaders.report = () => renderFinanceReportsPage(container);
-    // The headline figures are aggregated server-side over every awarded tender,
-    // so paging the table underneath never moves them.
+
     const report = await apiFetch(`/reports/finance${qs(pagerParams('report'))}`);
     const currencyEntries = Object.entries(report.by_currency || {});
 
@@ -3651,12 +3182,6 @@ function exportFinanceReport() {
     apiDownload('/reports/finance/export.csv', `finance_report_${new Date().toISOString().split('T')[0]}.csv`);
 }
 
-// ============================================
-// EMAIL TEMPLATES & LOG
-// ============================================
-// /emails/config and /emails/test are admin-only, while this page is open to
-// procurement too — so the card is fetched separately and simply omitted for
-// anyone who can't read it, rather than failing the whole page.
 async function mailStatusCard() {
     if (AppState.currentUser?.role !== 'admin') return '';
     let cfg;
@@ -3707,8 +3232,6 @@ async function renderEmailTemplatesPage(container) {
     const templates = await apiFetch('/emails/templates');
     const mailCard = await mailStatusCard();
 
-    // Driven off a list rather than a tab per hardcoded type — award_revoked was
-    // added later, and a fourth would otherwise mean editing four places.
     const TEMPLATE_TABS = [
         { type: 'winner', label: 'Winner Email', icon: 'fa-trophy', badge: 'Sent to winning vendor', badgeClass: 'badge-success' },
         { type: 'loser', label: 'Non-Winner Email', icon: 'fa-envelope', badge: 'Sent to every other bidder', badgeClass: 'badge-secondary' },
@@ -3874,8 +3397,7 @@ function filterEmailLog(status) {
 
 async function resendEmail(emailId) {
     try {
-        // Delivery is handed to a background task, so this comes back `queued`.
-        // Refreshing the log a moment later is what shows the real outcome.
+
         await apiFetch(`/emails/log/${emailId}/resend`, { method: 'POST' });
         showToast('info', 'Re-queued', 'Delivery is being retried — refresh the log to see the result');
         renderEmailLogPage(document.getElementById('contentArea'));
@@ -3900,13 +3422,6 @@ async function viewSentEmail(emailId) {
     openModal('emailPreviewModal');
 }
 
-// ============================================
-// THE BASKET — what we're actually buying
-// ============================================
-// One row per requirement. Each row is answered from a vendor's quote or typed
-// in by hand, so a four-item tender can be bought from four different places.
-// The basket, not any single offer, is what gets approved.
-
 const AWARD_STATUS_META = {
     draft:                 { label: 'Draft',                badge: '' },
     submitted:             { label: 'With purchasing mgr',  badge: 'badge-warning' },
@@ -3915,17 +3430,6 @@ const AWARD_STATUS_META = {
     rejected:              { label: 'Rejected',             badge: 'badge-danger' },
 };
 
-// The basket being built, keyed by tender item id. Each entry is a *list* of
-// picks, not one pick.
-//
-// It used to be one: a requirement was answered by a single source, and the
-// API refused two lines against the same tender item. That is not how a split
-// purchase works. Four monitors where one vendor has one in stock and another
-// has three is one requirement bought from two places, and refusing it meant
-// either buying four from the dearer vendor or leaving the requirement out of
-// the basket entirely and handling it off the system.
-//
-// Held outside the DOM so a re-render doesn't throw away a half-built basket.
 let basketDraft = {};
 
 function basketPicks(itemId) {
@@ -3943,28 +3447,17 @@ async function openBasketPage(tenderId) {
             apiFetch(`/tenders/${tenderId}`),
             apiFetch(`/offers?tender_id=${tenderId}`).catch(() => []),
             apiFetch(`/awards/tenders/${tenderId}`),
-            // Buying something ourselves does not mean buying it from a
-            // stranger. Purchasing walks into a supplier we already have a
-            // record for as often as into a corner shop, and typing the name
-            // in by hand loses the link to that record - which is the whole
-            // reason the directory exists. Best effort: a desk that cannot
-            // read the directory can still type a name.
-            // 200 is the API's ceiling on a page, and asking for more is a 422
-            // that this .catch would swallow into an empty directory - which
-            // shows as "no supplier is filed under this category" and looks
-            // like a filter bug rather than a request that never landed.
+
             apiList('/vendors', { limit: 200, active: true }).catch(() => ({ items: [] })),
         ]);
     } catch (err) { showLoadError(container, err, 'renderPage(AppState.currentPage)'); return; }
     const vendors = (vendorPage.items || []).filter(v => v.active !== false);
 
     const role = AppState.currentUser.role;
-    const isPurchasing = ['admin', 'procurement'].includes(role);
+    const isPurchasing = canPurchase();
     const status = award ? award.status : null;
     const editable = isPurchasing && (!award || status === 'draft' || status === 'rejected');
 
-    // Every priced line any vendor offered, indexed by the requirement it
-    // answers, so each row can show its own choices and nothing else.
     const choicesByItem = {};
     offers.forEach(offer => (offer.items || []).forEach(line => {
         if (!line.tender_item_id) return;
@@ -3972,10 +3465,6 @@ async function openBasketPage(tenderId) {
     }));
     Object.values(choicesByItem).forEach(list => list.sort((a, b) => a.line.unit_price - b.line.unit_price));
 
-    // Seed the draft from whatever is saved, so reopening the page shows the
-    // basket as it stands rather than an empty one. Several saved lines against
-    // one requirement come back as several picks, which is how a split survives
-    // a reload.
     basketDraft = {};
     (award ? award.lines : []).forEach(line => {
         if (!line.tender_item_id) return;
@@ -4046,21 +3535,13 @@ async function openBasketPage(tenderId) {
             </div>
         </div>
     `;
-    // The source cell is drawn from the draft rather than inline in the row
-    // template, so there is one definition of how a chosen source reads and
-    // the picker can repaint a single row without rebuilding the page.
+
     (tender.items || []).forEach(item => repaintRequirementRows(item.id));
     recalcBasket();
 }
 
 let basketContext = null;
 
-// Every row for one requirement: the picks it has been split into, or a single
-// empty row when it has none yet.
-//
-// The requirement is named once, on the first row, and the rest carry a turn
-// -down arrow. A split is one purchase of one thing from two places, and
-// repeating the item name down the table would read as two requirements.
 function basketRowsFor(item, editable) {
     const picks = basketPicks(item.id);
     const count = Math.max(picks.length, 1);
@@ -4107,16 +3588,11 @@ function basketRowsFor(item, editable) {
     return html;
 }
 
-// Adds another pick against the same requirement, and halves the quantity into
-// it so the split starts from something sensible rather than from two rows
-// both claiming the whole order.
 function splitBasketRow(itemId) {
     const picks = basketPicks(itemId);
     const item = basketContext.tender.items.find(i => i.id === itemId);
     const rows = [...document.querySelectorAll(`tr[data-row="${itemId}"]`)];
 
-    // Read the quantities currently on screen before the table is rebuilt, or
-    // anything typed since the last repaint is lost.
     rows.forEach((row, idx) => {
         if (!picks[idx]) picks[idx] = {};
         picks[idx].quantity = Number(row.querySelector('[data-field="qty"]').value) || 0;
@@ -4129,8 +3605,7 @@ function splitBasketRow(itemId) {
     if (!picks.length) picks.push({ quantity: Number(item.quantity) });
     const taken = picks.reduce((n, p) => n + Number(p.quantity || 0), 0);
     const spare = Math.max(Number(item.quantity) - taken, 0);
-    // Nothing left over means the split has to come out of what is already
-    // allocated, so the last row gives up half of itself.
+
     if (spare > 0) {
         picks.push({ quantity: spare });
     } else {
@@ -4144,7 +3619,7 @@ function splitBasketRow(itemId) {
 
 function removeBasketSplit(itemId, index) {
     const picks = basketPicks(itemId);
-    // Keep the typed values of the rows that survive.
+
     [...document.querySelectorAll(`tr[data-row="${itemId}"]`)].forEach((row, idx) => {
         if (!picks[idx]) return;
         picks[idx].quantity = Number(row.querySelector('[data-field="qty"]').value) || 0;
@@ -4153,8 +3628,6 @@ function removeBasketSplit(itemId, index) {
     redrawBasketRequirement(itemId);
 }
 
-// Redraws the rows of one requirement in place. Cheaper than rebuilding the
-// page, and it keeps every other requirement's half-typed prices intact.
 function redrawBasketRequirement(itemId) {
     const rows = [...document.querySelectorAll(`tr[data-row="${itemId}"]`)];
     if (!rows.length) return;
@@ -4171,9 +3644,6 @@ function redrawBasketRequirement(itemId) {
     recalcBasket();
 }
 
-// Every row of one requirement, including the single empty one a requirement
-// with no picks still draws - that row has a source button too, and it needs
-// to say "not buying" rather than nothing at all.
 function repaintRequirementRows(itemId) {
     const count = Math.max(basketPicks(itemId).length, 1);
     for (let idx = 0; idx < count; idx++) repaintBasketRow(itemId, idx);
@@ -4195,9 +3665,6 @@ function recalcBasket() {
             price ? `${tender.currency} ${lineTotal.toLocaleString()}` : '—';
     });
 
-    // "3 of 4" under a split requirement. A split that doesn't add up is the
-    // easy mistake to make here and an invisible one afterwards - the basket
-    // totals correctly and simply buys three of something four people need.
     (tender.items || []).forEach(item => {
         const tally = document.querySelector(`[data-tally="${item.id}"]`);
         if (!tally) return;
@@ -4213,25 +3680,17 @@ function recalcBasket() {
     if (el) el.textContent = `${tender.currency} ${total.toLocaleString()}`;
 }
 
-// Read off `basketDraft` for the choice, and off the row for the three typed
-// fields. The draft is the source of truth for what was picked: it survives a
-// re-render, and there is no longer a <select> holding it.
-//
-// A quantity is sent on every line, offer-sourced ones included. It used to be
-// left off so the offer's own quoted quantity carried, which is right until a
-// requirement is split - at which point two lines both inheriting the full
-// quote would buy twice what was asked for.
 function collectBasketLines() {
     const lines = [];
     document.querySelectorAll('tr[data-row]').forEach(row => {
         const itemId = row.dataset.row;
         const idx = Number(row.dataset.pick);
         const chosen = basketPicks(itemId)[idx];
-        if (!chosen) return;   // a requirement we aren't buying on this basket
+        if (!chosen) return;
 
         const item = basketContext.tender.items.find(i => i.id === itemId);
         const quantity = Number(row.querySelector('[data-field="qty"]').value || 0);
-        if (quantity <= 0) return;   // an empty part of a split is not a line
+        if (quantity <= 0) return;
 
         if (chosen.offer_item_id) {
             lines.push({
@@ -4241,9 +3700,7 @@ function collectBasketLines() {
             });
             return;
         }
-        // Bought by hand: the shop and the price are ours to type, so they come
-        // from the inputs rather than the draft, which only knows a choice was
-        // made.
+
         lines.push({
             tender_item_id: itemId,
             vendor_id: chosen.vendor_id || null,
@@ -4304,20 +3761,286 @@ function rejectBasket(tenderId) {
     });
 }
 
-// ============================================
-// CATEGORIES (admin)
-// ============================================
-// The vocabulary the whole vendor-matching mechanism turns on. A tender has one
-// category; a vendor has several; the invite list and the basket's source
-// picker both match one against the other. Get this list wrong and the symptom
-// is not an error - it is an empty invite list nobody can explain.
-//
-// It was an enum of four labels. Growing it meant a migration and a deploy, so
-// it never grew, and everything ended up filed under "goods" - which answers
-// none of the questions somebody picking a supplier actually has.
-//
-// Retire rather than delete. A tender raised under Consulting was raised under
-// Consulting, and shortening a dropdown is not a reason to rewrite that.
+let templatesCategory = '';
+
+async function renderTemplatesPage(container) {
+    const canEdit = canPurchase();
+
+    let page;
+    try {
+        page = await apiList('/templates', {
+            limit: 200,
+            include_inactive: canEdit,
+            ...(templatesCategory ? { category: templatesCategory } : {}),
+        });
+    } catch (err) { showLoadError(container, err, "renderPage('templates')"); return; }
+
+    const templates = page.items || [];
+
+    container.innerHTML = `
+        <div class="card" style="margin-bottom: 20px;">
+            <div class="card-body offers-picker">
+                <label for="templatesCategoryPicker">Category</label>
+                <select class="form-control" id="templatesCategoryPicker"
+                        onchange="onTemplatesCategoryChange(this.value)">
+                    <option value="" ${templatesCategory ? '' : 'selected'}>All categories</option>
+                    ${(AppState.categories || []).map(c => `
+                        <option value="${escapeAttr(c.slug)}" ${c.slug === templatesCategory ? 'selected' : ''}>
+                            ${escapeHtml(c.name)}</option>`).join('')}
+                </select>
+                ${canEdit ? `<button class="btn btn-accent btn-sm" onclick="openTemplateModal(null)">
+                    <i class="fas fa-plus"></i> New template</button>` : ''}
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <div>
+                    <h3 class="card-title" style="margin-bottom: 4px;">Quick-fill templates</h3>
+                    <span style="font-size: 13px; color: var(--text-muted);">
+                        ${templates.length} template(s)${templatesCategory
+                            ? ` for ${escapeHtml(categoryName(templatesCategory))}` : ''}
+                        &middot; ${canEdit
+                            ? 'press one to edit what it fills in'
+                            : 'these appear as pills on the request form'}
+                    </span>
+                </div>
+            </div>
+            <div class="card-body" style="padding: 0;">
+                ${templates.length === 0 ? `
+                    <div style="padding: 24px;"><div class="empty-state">
+                        <i class="fas fa-wand-magic-sparkles"></i>
+                        <h3>Nothing here yet</h3>
+                        <p>${canEdit
+                            ? 'A template is a purchase that comes round again — write the requirement table once and everybody raising it presses a pill instead of retyping it.'
+                            : 'Purchasing has not set up any templates for this category yet.'}</p>
+                    </div></div>
+                ` : `
+                <div class="table-container">
+                    <table class="offers-table">
+                        <thead><tr>
+                            <th>Template</th>
+                            <th>Category</th>
+                            <th>Department</th>
+                            <th>Items</th>
+                            <th>Documents</th>
+                            <th>Deadline</th>
+                            ${canEdit ? '<th>Status</th><th></th>' : ''}
+                        </tr></thead>
+                        <tbody>${templates.map(t => `
+                            <tr class="offer-row ${t.active ? '' : 'is-rejected'}"
+                                onclick="${canEdit ? `openTemplateModal('${t.id}')` : `useTemplateFromList('${t.id}')`}">
+                                <td><strong>${escapeHtml(t.name)}</strong>
+                                    ${t.description ? `<div style="font-size: 12px; color: var(--text-muted);">${escapeHtml(t.description)}</div>` : ''}</td>
+                                <td><span class="badge badge-info">${escapeHtml(t.category_name || t.category || '')}</span></td>
+                                <td>${t.department_id
+                                    ? `<span class="badge badge-warning">${escapeHtml(deptName(t.department_id))}</span>`
+                                    : '<span class="badge">All departments</span>'}</td>
+                                <td>${(t.items || []).length}</td>
+                                <td>${(t.required_docs || []).length || '<span style="color: var(--text-muted);">&mdash;</span>'}</td>
+                                <td style="white-space: nowrap;">${t.default_deadline_days} day(s)</td>
+                                ${canEdit ? `
+                                    <td><span class="badge ${t.active ? 'badge-success' : 'badge-secondary'}">
+                                        ${t.active ? 'Active' : 'Retired'}</span></td>
+                                    <td class="offer-actions">
+                                        <button class="btn btn-secondary btn-sm"
+                                                onclick="event.stopPropagation(); openTemplateModal('${t.id}')">Edit</button>
+                                    </td>` : ''}
+                            </tr>`).join('')}
+                        </tbody>
+                    </table>
+                </div>`}
+            </div>
+        </div>
+    `;
+}
+
+function onTemplatesCategoryChange(slug) {
+    templatesCategory = slug || '';
+    renderPage('templates');
+}
+
+function useTemplateFromList(templateId) {
+    openCreateTenderModal();
+    setTimeout(() => applyTemplate(templateId), 60);
+}
+
+async function openTemplateModal(templateId) {
+    let template = null;
+    if (templateId) {
+        try { template = await apiFetch(`/templates/${templateId}`); }
+        catch (err) { showToast('error', 'Error', err.message); return; }
+    }
+
+    const currencies = (typeof CURRENCIES !== 'undefined' ? CURRENCIES : ['EGP'])
+        .map(c => `<option value="${c}" ${template && c === template.currency ? 'selected' : ''}>${c}</option>`)
+        .join('');
+
+    document.getElementById('templateModalTitle').textContent =
+        template ? `Template — ${template.name}` : 'New template';
+    document.getElementById('templateId').value = template ? template.id : '';
+
+    document.getElementById('templateFields').innerHTML = `
+        <div class="form-row">
+            <div class="form-group">
+                <label>Template name *</label>
+                <input type="text" class="form-control" id="tplName"
+                       value="${escapeAttr(template ? template.name : '')}"
+                       placeholder="Annual laptop refresh">
+            </div>
+            <div class="form-group">
+                <label>Category *</label>
+                <select class="form-control" id="tplCategory">
+                    ${categoryOptions(template ? template.category : (AppState.categories || [])[0]?.slug)}
+                </select>
+                <small class="form-hint">Decides which vendors can be invited to anything raised from it.</small>
+            </div>
+            <div class="form-group">
+                <label>Department</label>
+                <select class="form-control" id="tplDepartment">
+                    <option value="">All departments</option>
+                    ${(AppState.departments || []).map(d => `
+                        <option value="${d.id}" ${template && template.department_id === d.id ? 'selected' : ''}>
+                            ${escapeHtml(d.name)}</option>`).join('')}
+                </select>
+                <small class="form-hint">Leave on "all" for something anyone might raise.</small>
+            </div>
+        </div>
+        <div class="form-row">
+            <div class="form-group">
+                <label>Currency</label>
+                <select class="form-control" id="tplCurrency">${currencies}</select>
+            </div>
+            <div class="form-group">
+                <label>Usual deadline</label>
+                <input type="number" class="form-control" id="tplDays" min="1"
+                       value="${template ? template.default_deadline_days : 14}">
+                <small class="form-hint">Days out. Offered to the manager approving it, never applied behind them.</small>
+            </div>
+            <div class="form-group">
+                <label>Required documents</label>
+                <input type="text" class="form-control" id="tplDocs"
+                       value="${escapeAttr((template && template.required_docs || []).join(', '))}"
+                       placeholder="Tax card, Commercial register">
+                <small class="form-hint">Separate with commas. Vendors get an upload box for each.</small>
+            </div>
+        </div>
+        <div class="form-group full-width">
+            <label>Description</label>
+            <input type="text" class="form-control" id="tplDescription"
+                   value="${escapeAttr(template ? template.description : '')}"
+                   placeholder="What this template is for">
+        </div>
+    `;
+
+    setItemRows(template ? template.items : null, 'templateItemsBody');
+
+    document.getElementById('templateRetireBtn').style.display =
+        template ? 'inline-flex' : 'none';
+    if (template) {
+        const btn = document.getElementById('templateRetireBtn');
+        btn.innerHTML = template.active
+            ? '<i class="fas fa-power-off"></i> Retire'
+            : '<i class="fas fa-power-off"></i> Reinstate';
+        btn.onclick = () => saveTemplate(!template.active);
+    }
+    openModal('templateModal');
+}
+
+async function saveTemplate(active = true) {
+    const id = document.getElementById('templateId').value;
+    const name = document.getElementById('tplName').value.trim();
+    if (!name) { showToast('error', 'Name required', 'A template needs a name'); return; }
+
+    const items = collectItemRows('templateItemsBody');
+    if (!items.length) {
+        showToast('error', 'Nothing in it',
+            'A template with no requirement table saves nobody any typing');
+        return;
+    }
+
+    const payload = {
+        name,
+        description: document.getElementById('tplDescription').value.trim(),
+        category: document.getElementById('tplCategory').value,
+        department_id: document.getElementById('tplDepartment').value || null,
+        currency: document.getElementById('tplCurrency').value,
+        default_deadline_days: Number(document.getElementById('tplDays').value) || 14,
+        required_docs: document.getElementById('tplDocs').value
+            .split(',').map(d => d.trim()).filter(Boolean),
+        items,
+        active,
+    };
+
+    try {
+        if (id) {
+            await apiFetch(`/templates/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+            showToast('success', 'Saved', `${name} updated`);
+        } else {
+            await apiFetch('/templates', { method: 'POST', body: JSON.stringify(payload) });
+            showToast('success', 'Template created', `${name} is ready to use`);
+        }
+        closeModal('templateModal');
+        renderPage('templates');
+    } catch (err) { showToast('error', 'Error', err.message); }
+}
+
+let templatePills = [];
+
+async function loadTemplatePills() {
+    const strip = document.getElementById('templatePills');
+    if (!strip) return;
+    const user = AppState.currentUser;
+    try {
+        const page = await apiList('/templates', {
+            limit: 50,
+            ...(user && user.department_id ? { department_id: user.department_id } : {}),
+        });
+        templatePills = page.items || [];
+    } catch (err) { templatePills = []; }
+
+    if (!templatePills.length) { strip.innerHTML = ''; return; }
+    strip.innerHTML = `
+        <span class="pill-label">Start from</span>
+        ${templatePills.map(t => `
+            <button type="button" class="template-pill" onclick="applyTemplate('${t.id}')"
+                    title="${escapeAttr(t.description || t.name)}">
+                <i class="fas fa-wand-magic-sparkles"></i> ${escapeHtml(t.name)}
+                <span class="pill-count">${(t.items || []).length}</span>
+            </button>`).join('')}
+        <button type="button" class="template-pill is-clear" onclick="clearTemplate()"
+                title="Start from an empty form">Blank</button>
+    `;
+}
+
+function applyTemplate(templateId) {
+    const template = templatePills.find(t => t.id === templateId);
+    if (!template) {
+
+        apiFetch(`/templates/${templateId}`).then(t => {
+            templatePills = [...templatePills, t];
+            applyTemplate(templateId);
+        }).catch(err => showToast('error', 'Error', err.message));
+        return;
+    }
+    document.getElementById('tenderName').value = template.name;
+    fillTenderCategories(template.category);
+    setItemRows(template.items);
+
+    document.getElementById('tenderTemplateId').value = template.id;
+    document.querySelectorAll('#templatePills .template-pill').forEach(b =>
+        b.classList.toggle('is-active', b.getAttribute('onclick').includes(templateId)));
+    showToast('info', 'Filled in from a template',
+        `${(template.items || []).length} row(s) — change anything you like before sending`);
+}
+
+function clearTemplate() {
+    document.getElementById('tenderName').value = '';
+    setItemRows(null);
+    document.getElementById('tenderTemplateId').value = '';
+    document.querySelectorAll('#templatePills .template-pill').forEach(b =>
+        b.classList.remove('is-active'));
+}
 
 let categoriesShowRetired = false;
 
@@ -4411,12 +4134,8 @@ function toggleRetiredCategories(on) {
     renderPage('categories');
 }
 
-// Reloads AppState.categories after any change, so the create-tender form and
-// the vendor picker see it without a sign-out. They read from the cache rather
-// than fetching per open, which is right for a list that changes twice a year
-// and wrong the one afternoon somebody is setting it up.
 async function refreshCategoryCache() {
-    try { AppState.categories = await apiFetch('/categories'); } catch (err) { /* keep the old list */ }
+    try { AppState.categories = await apiFetch('/categories'); } catch (err) {  }
 }
 
 function openAddCategoryModal() {
@@ -4507,18 +4226,10 @@ function deleteCategory(id, name) {
         });
 }
 
-// ============================================
-// VENDOR DIRECTORY
-// ============================================
-// One directory, and this is it. A vendor is a company we buy from, not an
-// account — purchasing creates the record, and the vendor reaches a tender
-// through a link addressed to them. There is nothing here to activate,
-// deactivate, or reset a password on.
-
 async function renderVendorDirectoryPage(container) {
     pagerReloaders.vendors = () => renderVendorDirectoryPage(container);
     const page = await apiList('/vendors', pagerParams('vendors'));
-    const canEdit = ['admin', 'procurement'].includes(AppState.currentUser.role);
+    const canEdit = canPurchase();
 
     container.innerHTML = `
         <div class="card">
@@ -4578,18 +4289,10 @@ async function renderVendorDirectoryPage(container) {
     `;
 }
 
-// Add and edit are one function because they are one form. The only real
-// difference is which button was pressed and whether the fields start empty.
-//
-// Categories are tick boxes, not a dropdown. A vendor supplies several things -
-// that is the whole reason the single column went - and a <select multiple> is
-// a control almost nobody knows how to use with the keyboard, let alone that
-// they are allowed to pick more than one.
 function vendorFormBody(vendor) {
     const chosen = new Set((vendor && vendor.categories || []).map(c => c.slug));
     const list = [...(AppState.categories || [])];
-    // A retired category the vendor is already filed under still shows, ticked,
-    // so saving the form doesn't quietly drop it.
+
     (vendor && vendor.categories || []).forEach(c => {
         if (!list.some(x => x.slug === c.slug)) list.push({ ...c, name: c.name + ' (retired)' });
     });
@@ -4684,9 +4387,6 @@ async function toggleVendorActive(vendorId, active) {
     } catch (err) { showToast('error', 'Error', err.message); }
 }
 
-// Two histories, kept apart on purpose: everything they have quoted, and what
-// we actually bought from them. The first is what you read when an award has
-// to move; the second is the finished business.
 async function openVendorHistory(vendorId) {
     const container = document.getElementById('contentArea');
     showLoading(container);
@@ -4763,13 +4463,6 @@ async function openVendorHistory(vendorId) {
     `;
 }
 
-// ============================================
-// WHO GETS ASKED (per tender)
-// ============================================
-// Being in the tender's category makes a vendor a candidate. Purchasing
-// decides which candidates are actually approached — that decision is this
-// screen, and nothing goes out until Send is pressed.
-
 async function openTenderVendors(tenderId) {
     const container = document.getElementById('contentArea');
     showLoading(container);
@@ -4781,11 +4474,11 @@ async function openTenderVendors(tenderId) {
         ]);
     } catch (err) { showLoadError(container, err, 'renderPage(AppState.currentPage)'); return; }
 
-    const canEdit = ['admin', 'procurement'].includes(AppState.currentUser.role);
+    const canEdit = canPurchase();
     const unsent = rows.filter(r => r.invited && !r.sent_at).length;
-    // Resend only makes sense once something has gone out.
+
     const sentAlready = rows.filter(r => r.sent_at).length;
-    // Vendors with no email on file, still waiting for somebody to reach them.
+
     const needManual = rows.filter(r => r.invited && r.needs_other_channel).length;
 
     container.innerHTML = `
@@ -4849,9 +4542,6 @@ async function saveInviteList(tenderId) {
     } catch (err) { showToast('error', 'Error', err.message); }
 }
 
-// `resend` reuses each vendor's existing token, so a vendor holding the first
-// mail and a vendor holding the second end up at the same page. Issuing new
-// tokens instead would quietly break every link already handed out.
 async function sendRfq(tenderId, resend) {
     showConfirmDialog(
         resend ? 'Send the RFQ again' : 'Send the RFQ',
@@ -4872,9 +4562,6 @@ async function sendRfq(tenderId, resend) {
         });
 }
 
-// Marks the no-email vendors as reached. Nothing is sent and nothing is
-// proven - this records that the person pressing it says they handed the link
-// over, and the audit log keeps their name against that claim.
 async function confirmHandover(tenderId) {
     showConfirmDialog('Confirm handed over',
         'This records that you gave these vendors their link yourself, by phone or message. No email is sent. Only do this once they actually have it.',
@@ -4887,22 +4574,12 @@ async function confirmHandover(tenderId) {
         });
 }
 
-// ============================================
-// UTILITIES
-// ============================================
-// A modal with arbitrary form markup in it. `onSubmit` returns true to close
-// and false to stay open, so a validation failure doesn't throw away what the
-// user typed.
 function showFormDialog(title, bodyHtml, submitLabel, onSubmit) {
     const existing = document.getElementById('genericFormModal');
     if (existing) existing.remove();
     const wrap = document.createElement('div');
     wrap.id = 'genericFormModal';
-    // .modal-overlay is the fixed, centred backdrop; .modal is the box inside
-    // it. This used to be `modal active` wrapping `.modal-content` - two class
-    // names the stylesheet has never had - so the dialog laid out as a plain
-    // block at the end of <body>, below the fold. It was there the whole time,
-    // just past the bottom of the page.
+
     wrap.className = 'modal-overlay active';
     wrap.innerHTML = `
         <div class="modal">
@@ -4915,7 +4592,7 @@ function showFormDialog(title, bodyHtml, submitLabel, onSubmit) {
             </div>
         </div>`;
     document.body.appendChild(wrap);
-    // Clicking the backdrop closes it; clicking inside the box must not.
+
     wrap.addEventListener('click', (e) => { if (e.target === wrap) wrap.remove(); });
     document.getElementById('genericFormSubmit').addEventListener('click', async () => {
         const done = await onSubmit();
@@ -4984,9 +4661,6 @@ function formatDate(dateString) {
     return new Date(dateString).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 }
 
-// A tender has no deadline until the manager who approves it sets one, so
-// every screen that shows a deadline has to have an answer for "none yet".
-// Printing the raw null as "- null" was that answer before this existed.
 function formatDeadline(t) {
     if (!t || !t.deadline_date) return 'Not set yet';
     return `${formatDate(t.deadline_date)} at ${t.deadline_time}`;
@@ -4997,9 +4671,6 @@ function formatDateTime(dateString) {
     return new Date(dateString).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-// ============================================
-// NOTIFICATION DROPDOWN
-// ============================================
 function toggleNotificationDropdown() {
     const dropdown = document.getElementById('notificationDropdown');
     const isActive = dropdown.classList.contains('active');
@@ -5014,8 +4685,7 @@ async function renderNotificationDropdown() {
     let sorted = [];
     let unreadCount = 0;
     try {
-        // The API already returns newest first; the count comes from its own
-        // endpoint because ten rows can't tell you how many unread ones exist.
+
         const [page, unread] = await Promise.all([
             apiList('/notifications', { limit: 10 }),
             apiFetch('/notifications/unread-count')
@@ -5074,29 +4744,23 @@ function formatTimeAgo(dateString) {
 }
 
 async function handleNotificationClick(notificationId, type) {
-    try { await apiFetch(`/notifications/${notificationId}/read`, { method: 'POST' }); } catch (e) { /* ignore */ }
+    try { await apiFetch(`/notifications/${notificationId}/read`, { method: 'POST' }); } catch (e) {  }
     document.getElementById('notificationDropdown').classList.remove('active');
 
-    // manager_approved and changes_requested are the two types sent to two
-    // different audiences: the role-addressed copy goes to procurement, and a
-    // second copy goes personally to the employee who raised the tender. They
-    // land on different pages, so this one type has to branch on who's reading.
     if (isEmployee(AppState.currentUser)) {
         navigateTo('my-requests');
         refreshNotificationBadgeOnly();
         return;
     }
 
-    // For everyone else each type has exactly one role it's addressed to, so
-    // the destination follows from the type alone.
     const destinations = {
-        tender_pending_approval: 'review',      // manager: a tender needs a decision
-        manager_approved: 'tenders',            // procurement: it's open, share the link
-        changes_requested: 'tenders',           // procurement: revise and resubmit
-        submission_received: 'submissions',     // procurement: a new bid landed
-        offer_selected: 'offers',               // an offer moved a step along the chain
-        sc_rejected: 'history',                 // manager: supply chain turned it down
-        tender_awarded: 'notifications'         // finance: award details
+        tender_pending_approval: 'review',
+        manager_approved: 'tenders',
+        changes_requested: 'tenders',
+        submission_received: 'submissions',
+        offer_selected: 'offers',
+        sc_rejected: 'history',
+        tender_awarded: 'notifications'
     };
     const destination = destinations[type];
     if (destination) navigateTo(destination);
@@ -5115,12 +4779,11 @@ async function markAllNotificationsRead() {
 async function refreshNotificationBadgeOnly() {
     if (isVendor(AppState.currentUser) || !AppState.currentUser) return;
     try {
-        // A dedicated count, so the poll that runs every minute doesn't drag a
-        // page of rows across the wire just to decide whether to show a dot.
+
         const { unread } = await apiFetch('/notifications/unread-count');
         AppState.unreadCount = unread;
         updateNotificationBadge();
-    } catch (err) { /* silent */ }
+    } catch (err) {  }
 }
 
 function updateNotificationBadge() {
@@ -5136,25 +4799,11 @@ document.addEventListener('click', function (e) {
     }
 });
 
-// ============================================
-// WAREHOUSE: RECEIVING
-// ============================================
-// The warehouse sees exactly one thing — purchases that cleared every approval
-// and haven't been checked in yet. By the time a shipment reaches this screen
-// every decision about it has been made, so there is nothing here to decide:
-// the only question left is whether the right things turned up.
-//
-// Who counts as the warehouse is a department, not a role. Seniority and
-// function come from `departments.code` everywhere else in this app, and the
-// warehouse account is an ordinary `employee` attached to Warehouse.
-
 function isWarehouse(user) {
     const dept = currentDepartment();
     return !!(user && dept && dept.code === 'warehouse');
 }
 
-// The shipment currently open in the receive modal, so the modal's own
-// controls can read its lines back without another fetch.
 let receivingDraft = null;
 
 const CONDITIONS = [
@@ -5234,15 +4883,6 @@ async function renderReceivingPage(container) {
     `;
 }
 
-// The check-in sheet. Every line starts ticked, because "it all arrived" is
-// what usually happens and making the warehouse confirm forty lines one by one
-// to record a normal delivery is how you train people to click through it
-// without looking. Untick a line and it asks what went wrong.
-//
-// The print button is a convenience, not a step. Somebody who wants paper in
-// their hand at the door prints it, walks the pallet, marks it up and types the
-// result in afterwards; somebody with a tablet never touches it. Nothing here
-// waits on it having been pressed.
 async function openReceiveModal(source, shipmentId) {
     let shipments;
     try {
@@ -5349,10 +4989,6 @@ async function openReceiveModal(source, shipmentId) {
     openModal('receiveModal');
 }
 
-// Unticking reveals the "what went wrong" fields for that line only. The
-// received-quantity box is pre-filled with the ordered amount for the
-// conditions where the goods did turn up (damaged, wrong item) and zero for the
-// ones where they didn't, so the common case needs no typing.
 function onReceiveTick(box) {
     const row = box.closest('tr');
     const fields = row.querySelector('.problem-fields');
@@ -5371,19 +5007,15 @@ function syncReceivedDefault(row) {
     if (got.dataset.touched) return;
     const item = (receivingDraft?.items || []).find(i => i.line_id === row.dataset.item);
     const ordered = item ? Number(item.quantity) : 0;
-    // Damaged and wrong-item goods physically arrived; missing ones didn't.
+
     got.value = ['damaged', 'wrong_item'].includes(condition) ? ordered : 0;
     got.oninput = () => { got.dataset.touched = '1'; };
 }
 
-// Opens the browser's print dialog on the sheet alone. `.no-print` hides the
-// controls and `.print-only` reveals a blank column to mark up by hand — see
-// the @media print block in style.css.
 function printReceivingSheet() {
     document.body.classList.add('printing-receipt');
     window.print();
-    // Put the screen back once the dialog closes. The timeout is for the
-    // browsers that return from window.print() before the dialog is dismissed.
+
     setTimeout(() => document.body.classList.remove('printing-receipt'), 500);
 }
 
@@ -5411,8 +5043,6 @@ async function submitReceipt() {
         });
     }
 
-    // Named individually rather than counted. "3 lines need a note" means
-    // hunting for them down a long table.
     if (unexplained.length) {
         showToast('error', 'Say what went wrong',
             `No note on: ${unexplained.slice(0, 3).join(', ')}` +
@@ -5445,9 +5075,6 @@ async function submitReceipt() {
     });
 }
 
-// What the warehouse has already checked in. Problems first is not a sort
-// preference — an "everything arrived" receipt is read once and forgotten, and
-// a delivery three boxes short is the one still needing somebody.
 async function renderReceiptsPage(container) {
     const receipts = await apiFetch('/receiving/receipts?limit=100');
 
@@ -5536,28 +5163,11 @@ function toggleReceiptLines(event, receiptId) {
     if (caret) caret.classList.toggle('open');
 }
 
-// ---------------------------------------------------------------- the picker
-//
-// Choosing where a basket line comes from used to be a <select> per row. With
-// three vendors bidding it was fine; with eight offers across five submissions
-// it was a list of near-identical strings in a box two lines tall, and finding
-// "Techno's second offer" meant reading every option.
-//
-// It is a modal now, grouped by the bid it arrived in, because that is how
-// purchasing actually thinks about it: the question is "what did Techno quote
-// for this?", not "which of these nineteen lines is cheapest". The vendor name
-// is on the group heading — purchasing may see it, and by the time a basket is
-// being assembled the blind comparison is over anyway.
-//
-// "We buy it ourselves" is an option in the same list rather than a mode set
-// elsewhere. It is one more answer to the same question.
-
 let basketPickItemId = null;
 let basketPickIndex = 0;
-// What has been typed into the picker's search box, kept across a repaint of
-// the modal body so typing doesn't reset itself.
+
 let basketPickSearch = '';
-// Whether the vendor list is showing every category or only the tender's.
+
 let basketPickAllCategories = false;
 
 function openBasketPicker(itemId, index = 0) {
@@ -5588,8 +5198,6 @@ function drawBasketPicker(opts = {}) {
     const chosen = basketPicks(itemId)[basketPickIndex] || {};
     const query = basketPickSearch.trim().toLowerCase();
 
-    // Grouped by the submission the offer came in on, so one vendor's several
-    // offers sit together.
     const groups = new Map();
     choices.forEach(({ offer, line }) => {
         const key = offer.vendor_company || 'Supplier not shown';
@@ -5633,17 +5241,6 @@ function drawBasketPicker(opts = {}) {
                 }).join('')}
             </div>`).join('');
 
-    // The directory, narrowed to the tender's own category.
-    //
-    // A goods tender has no business offering a list of construction
-    // contractors, and on a directory of any size the one supplier purchasing
-    // meant was buried in companies that could not have supplied it. The
-    // toggle is there because the category on a vendor record is a filing
-    // decision somebody made once, and being wrong about it should not put a
-    // supplier out of reach.
-    // ANY of the vendor's categories. A company selling laptops and desks is
-    // a candidate for a tender about either, and testing one column was how
-    // half their catalogue used to become unreachable.
     const inCategory = (v) => basketPickAllCategories || !tender.category
         || (v.categories || []).some(c => c.slug === tender.category);
     const matching = (vendors || []).filter(inCategory);
@@ -5733,16 +5330,12 @@ function drawBasketPicker(opts = {}) {
     }
 }
 
-// Writes the choice into the draft and repaints the one row it changed. The
-// draft is the source of truth here, not the DOM, so a later re-render of the
-// whole page keeps it.
 function chooseBasketSource(value) {
     const itemId = basketPickItemId;
     if (!itemId) return;
     const picks = basketPicks(itemId);
     const idx = basketPickIndex;
-    // A quantity already typed against this part of the split is the user's,
-    // not the source's - changing where it comes from doesn't change how many.
+
     const row = document.querySelector(`tr[data-row="${itemId}"][data-pick="${idx}"]`);
     const typedQty = row ? Number(row.querySelector('[data-field="qty"]').value) : null;
     const keptQty = (picks[idx] && picks[idx].quantity) != null
@@ -5752,10 +5345,7 @@ function chooseBasketSource(value) {
         picks[idx] = { offer_item_id: null, vendor_id: null, vendor_name: '',
                        unit_price: null, quantity: keptQty };
     } else if (value.startsWith('__vendor__')) {
-        // Bought by hand, but from a company we already have a record for. The
-        // id is what keeps it on their history in the directory; the name is
-        // copied alongside it so the line still reads correctly if the vendor
-        // row is ever retired.
+
         const vendor = (basketContext.vendors || []).find(v => v.id === value.slice(10));
         picks[idx] = vendor
             ? { offer_item_id: null, vendor_id: vendor.id, vendor_name: vendor.company_name,
@@ -5774,7 +5364,7 @@ function chooseBasketSource(value) {
               }
             : {};
     } else if (picks.length > 1) {
-        // One part of a split dropped rather than the whole requirement.
+
         picks.splice(idx, 1);
         closeModal('basketPickModal');
         basketPickItemId = null;
@@ -5789,8 +5379,6 @@ function chooseBasketSource(value) {
     redrawBasketRequirement(itemId);
 }
 
-// One row, from the draft. Cheaper than re-rendering the page and it keeps the
-// other rows' half-typed prices intact.
 function repaintBasketRow(itemId, index = 0) {
     const row = document.querySelector(`tr[data-row="${itemId}"][data-pick="${index}"]`);
     if (!row) return;
@@ -5819,16 +5407,13 @@ function repaintBasketRow(itemId, index = 0) {
     const editable = row.dataset.editable === '1';
 
     if (manual) {
-        // A registered vendor's name comes from their record, so it is shown
-        // and not typed - editing it here would put a second spelling of the
-        // same company on the line and quietly break the directory link.
+
         vendorInput.disabled = !editable || !!chosen.vendor_id;
         priceInput.disabled = !editable;
         if (chosen.vendor_name != null) vendorInput.value = chosen.vendor_name;
         if (chosen.unit_price != null) priceInput.value = chosen.unit_price;
     } else {
-        // A quoted price is the vendor's figure and not ours to edit: changing
-        // it here would record something they never said.
+
         vendorInput.value = chosen.offer_item_id ? (chosen.vendor_name || '') : '';
         priceInput.value = chosen.offer_item_id && chosen.unit_price != null ? chosen.unit_price : '';
         vendorInput.disabled = true;
@@ -5836,18 +5421,6 @@ function repaintBasketRow(itemId, index = 0) {
     }
 }
 
-
-// Put one offer line straight into the tender's basket, from the offers desk.
-//
-// The long way round was: leave the desk, open the basket, find the row, open
-// the picker, find the offer again. Purchasing reading a good line wants to
-// keep it there and then, and every step between the thought and the record is
-// a step where it gets forgotten.
-//
-// Merges into whatever the basket already holds rather than replacing it — the
-// PUT is a whole-basket write, so the current lines are read first and this one
-// is layered on top. A requirement already answered is overwritten, which is
-// the honest reading of "add this one instead".
 async function addLineToBasket(tenderId, tenderItemId, offerItemId) {
     try {
         const award = await apiFetch(`/awards/tenders/${tenderId}`);
@@ -5857,10 +5430,6 @@ async function addLineToBasket(tenderId, tenderItemId, offerItemId) {
             return;
         }
 
-        // Quantity is carried on every line, offer-sourced ones included: a
-        // requirement split across two suppliers is two saved lines, and
-        // dropping their quantities would collapse both back to the full
-        // quoted amount and double the order.
         const lines = (award ? award.lines : [])
             .filter(l => l.tender_item_id !== tenderItemId)
             .map(l => (l.offer_item_id

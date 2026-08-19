@@ -1,15 +1,3 @@
-"""The vendor directory, and who gets asked to bid.
-
-One directory. A vendor is a record purchasing creates — a company we buy from
-— not an account. They never log in; they reach a tender through a link
-addressed to them, and everything about them lives here.
-
-Two histories are kept apart deliberately: **what they have quoted**
-(`/submissions`) and **what we actually bought from them** (`/awards`). Reading
-the second out of the first means walking every bid to find the winning lines,
-which is exactly the thing you don't want to do when a vendor falls over and
-the purchase has to move.
-"""
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -18,7 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core.audit import log_audit
-from app.core.deps import require_roles, require_staff
+from app.core.deps import require_staff
+from app.core.scope import require_purchasing
 from app.core.pagination import Page, Pagination, count_rows
 from app.database import get_db
 from app.models.award import Award, AwardLine, AwardStatus
@@ -39,8 +28,7 @@ from app.schemas.vendor import (
 
 router = APIRouter(prefix="/vendors", tags=["vendors"], dependencies=[Depends(require_staff)])
 
-# Purchasing keeps the directory. Everyone else on staff can read it.
-CAN_EDIT = require_roles("admin", "procurement")
+CAN_EDIT = require_purchasing("admin", "procurement")
 
 
 def _out(vendor: Vendor) -> VendorOut:
@@ -67,8 +55,6 @@ async def list_vendors(
 ) -> Page[VendorOut]:
     stmt: Select = select(Vendor).order_by(Vendor.company_name)
     if category:
-        # ANY of the vendor's categories, not "their category" - a company
-        # filed under both goods and services belongs in both lists.
         stmt = stmt.where(
             Vendor.id.in_(
                 select(vendor_categories.c.vendor_id)
@@ -100,7 +86,6 @@ async def list_vendors(
 async def create_vendor(
     payload: VendorCreate, user: User = Depends(CAN_EDIT), db: AsyncSession = Depends(get_db)
 ) -> VendorOut:
-    """Purchasing adds a company to the directory. No account is created."""
     existing = await db.scalar(
         select(Vendor).where(func.lower(Vendor.company_name) == payload.company_name.lower())
     )
@@ -144,10 +129,6 @@ async def update_vendor(
 ) -> VendorOut:
     vendor = await _get_or_404(db, vendor_id)
     fields = payload.model_dump(exclude_unset=True)
-    # Categories are a relationship, not a column, so they cannot ride the
-    # generic setattr loop - that would put a list of slug strings where a list
-    # of rows belongs. Omitted means "leave them alone"; sent means "this is
-    # now the whole set", the same shape as the invite list and the basket.
     slugs = fields.pop("categories", None)
     if slugs is not None:
         vendor.categories = await categories_by_slug(db, slugs)
@@ -163,12 +144,6 @@ async def update_vendor(
 async def vendor_submissions(
     vendor_id: uuid.UUID, db: AsyncSession = Depends(get_db)
 ) -> list[VendorSubmissionOut]:
-    """Everything this vendor has ever quoted.
-
-    The log you read when an award has to be withdrawn and moved: it shows who
-    else was in the running and what they said, without hunting through
-    tenders one at a time.
-    """
     await _get_or_404(db, vendor_id)
     rows = (
         await db.execute(
@@ -191,9 +166,6 @@ async def vendor_submissions(
             )
         ).all()
     )
-    # How many lines from each bid were actually bought. Counted from the award
-    # lines rather than from any status on the offer, because a basket can take
-    # one line out of an offer and leave the other three.
     won = dict(
         (
             await db.execute(
@@ -232,12 +204,6 @@ async def vendor_submissions(
 async def vendor_awards(
     vendor_id: uuid.UUID, db: AsyncSession = Depends(get_db)
 ) -> list[VendorAwardOut]:
-    """What we have actually bought from this vendor, line by line.
-
-    Separate from the bid log above: this is the finished business. A tender
-    bought across three vendors appears on all three of their pages, showing
-    only the lines each of them supplied.
-    """
     await _get_or_404(db, vendor_id)
     rows = (
         await db.execute(

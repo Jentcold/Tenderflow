@@ -8,7 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import log_audit
 from app.core.categories import category_by_slug
-from app.core.deps import require_internal, require_roles
+from app.core.deps import require_internal
+from app.core.scope import require_purchasing
 from app.core.pagination import Page, Pagination, paginate
 from app.database import get_db
 from app.models.category import Category
@@ -25,20 +26,11 @@ from app.schemas.tender_template import (
 )
 from app.services.tender_service import generate_serial
 
-# Internal-only, and reading is deliberately open to every internal role: the
-# whole point of a template is that a department can browse the ones for its
-# category and press one. Writing is purchasing's job, enforced per endpoint.
 router = APIRouter(prefix="/templates", tags=["templates"], dependencies=[Depends(require_internal)])
 
-CAN_EDIT_TEMPLATES = require_roles("admin", "procurement")
-# Same set as tenders.CAN_CREATE — raising a tender from a template must not be
-# a way around who is allowed to raise a tender at all.
-CAN_USE_TEMPLATES = require_roles("admin", "procurement", "employee")
+CAN_EDIT_TEMPLATES = require_purchasing("admin", "procurement")
+CAN_USE_TEMPLATES = require_purchasing("admin", "procurement", "employee")
 
-# 09:00 local. A template stores how many days out the deadline is, not a time
-# of day; anything raised from one lands on business hours rather than midnight.
-# What the approve dialog offers as the closing time when a manager sets a
-# deadline. Nothing writes it to a tender on its own.
 DEFAULT_DEADLINE_TIME = time(9, 0)
 
 
@@ -55,7 +47,6 @@ async def _items_of(db: AsyncSession, template_id: uuid.UUID) -> list[TemplateIt
 
 
 async def _items_for(db: AsyncSession, ids: list[uuid.UUID]) -> dict[uuid.UUID, list[TemplateItem]]:
-    """Items for a whole page in one query rather than one per template."""
     if not ids:
         return {}
     rows = (
@@ -94,12 +85,6 @@ def _out(template: TenderTemplate, items: list[TemplateItem]) -> TenderTemplateO
 
 
 class UseTemplateRequest(BaseModel):
-    """Overrides for the one press that turns a template into a tender.
-
-    Everything is optional. `department_id` is only needed for an all-departments
-    template, which by definition doesn't know which department is using it.
-    """
-
     name: str | None = None
     description: str | None = None
     department_id: uuid.UUID | None = None
@@ -118,15 +103,10 @@ async def list_templates(
 ) -> Page[TenderTemplateOut]:
     stmt = select(TenderTemplate).order_by(TenderTemplate.name)
     if category is not None:
-        # Joined rather than compared: the category is a row now, and the slug
-        # is what the caller sends because it is the readable stable key.
         stmt = stmt.join(Category, Category.id == TenderTemplate.category_id).where(
             Category.slug == category
         )
     if department_id is not None:
-        # OR-ing in the nulls is the point of the filter: a template purchasing
-        # made for everyone must appear for each department, not for none of
-        # them. An equality test alone would hide exactly the shared ones.
         stmt = stmt.where(
             (TenderTemplate.department_id == department_id) | (TenderTemplate.department_id.is_(None))
         )
@@ -170,8 +150,6 @@ async def create_template(
         created_by=user.id,
     )
     db.add(template)
-    # The UUID default lands at INSERT, not on construction — flush so
-    # template.id exists for the item rows' foreign key.
     await db.flush()
     _write_items(db, template, payload.items)
     await log_audit(db, "Template Created", f"{template.name} ({template.category})", user.name)
@@ -200,8 +178,6 @@ async def update_template(
     template.required_docs = payload.required_docs
     template.active = payload.active
 
-    # Full replacement, same reasoning as a tender's items: matching rows by
-    # name would merge two lines that share one and keep rows meant to go.
     await db.execute(TemplateItem.__table__.delete().where(TemplateItem.template_id == template.id))
     _write_items(db, template, payload.items)
 
@@ -218,12 +194,6 @@ async def create_tender_from_template(
     user: User = Depends(CAN_USE_TEMPLATES),
     db: AsyncSession = Depends(get_db),
 ) -> TenderListItem:
-    """The one press. Creates an ordinary tender and hands it to the manager.
-
-    Nothing is short-circuited: the tender starts at pending_approval and the
-    manager gets the same notification as for a hand-built one. A template
-    saves the typing, not the approval.
-    """
     template = await db.get(TenderTemplate, template_id)
     if not template:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Template not found")
@@ -235,8 +205,6 @@ async def create_tender_from_template(
 
     department_id = payload.department_id or template.department_id
     if department_id is None:
-        # An all-departments template can't guess who is raising it, and
-        # department_id is what later decides which manager approves the tender.
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
             "This template is not tied to a department, so department_id is required",
@@ -246,27 +214,16 @@ async def create_tender_from_template(
         serial=generate_serial(),
         name=payload.name or template.name,
         description=payload.description if payload.description is not None else template.description,
-        # No deadline yet, template or not. Pressing a template still raises a
-        # request that a manager approves, and the deadline is set there — the
-        # template's `default_deadline_days` is what that dialog offers as a
-        # starting point, not a date applied behind the manager's back.
         deadline_date=None,
         deadline_time=None,
         currency=template.currency,
-        category=template.category,
-        category_name=template.category_name,
+        category_ref=template.category_ref,
         department_id=department_id,
-        # Copied, not shared. dict()/list() here rather than the template's own
-        # objects: handing over the same list would let a later edit to the
-        # tender mutate the template's JSON through the shared reference.
         required_docs=list(template.required_docs),
         created_by=user.id,
     )
     db.add(tender)
-    await db.flush()  # assigns tender.id for the item rows and the notification
-    # The requirement table comes across as rows of its own, copied not shared,
-    # so editing the template next quarter cannot rewrite a tender already out
-    # with vendors.
+    await db.flush()
     template_items = await _items_of(db, template.id)
     for item in template_items:
         db.add(

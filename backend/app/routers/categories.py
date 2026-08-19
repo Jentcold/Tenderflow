@@ -1,19 +1,3 @@
-"""The category list the admin maintains.
-
-Categories used to be four labels in an enum. Growing that list meant a
-migration and a deploy, so in practice it never grew and everything ended up
-filed under `goods` - which is worth nothing to the person deciding who to
-invite. It is a table now, and adding "Portable devices" is a row.
-
-**Reading is open to everyone internal**, because the list is the vocabulary of
-three screens at once: the create-tender form, the vendor directory, and the
-basket's source picker. Gating the read would mean a requester could not name
-what they are asking for.
-
-**Writing is admin only.** A category is the axis the whole vendor-matching
-mechanism turns on: rename one and every screen relabels, retire one and it
-leaves the pickers. That is a configuration decision, not a day's work.
-"""
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -61,12 +45,6 @@ async def list_categories(
     user: User = Depends(require_internal),
     db: AsyncSession = Depends(get_db),
 ) -> list[CategoryOut]:
-    """The list, in the admin's own order.
-
-    Retired ones are left out by default: they are kept so that everything
-    already filed under them keeps reading correctly, not so they keep turning
-    up in pickers.
-    """
     stmt = select(Category).order_by(Category.position.asc(), Category.name.asc())
     if not include_retired:
         stmt = stmt.where(Category.active.is_(True))
@@ -88,10 +66,6 @@ async def create_category(
         select(Category).where((Category.slug == slug) | (func.lower(Category.name) == name.lower()))
     )
     if clash is not None:
-        # A retired category with the same name is the common case here -
-        # somebody is re-adding one that was taken out. Reinstating it keeps
-        # everything already filed under it attached, which creating a second
-        # row with the same meaning would not.
         if not clash.active:
             clash.active = True
             clash.name = name
@@ -119,11 +93,6 @@ async def update_category(
     user: User = Depends(CAN_EDIT),
     db: AsyncSession = Depends(get_db),
 ) -> CategoryOut:
-    """Rename, reorder or retire one.
-
-    The slug is never touched - see CategoryUpdate. Renaming is safe precisely
-    because nothing is filed under the name.
-    """
     category = await db.get(Category, category_id)
     if category is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Category not found")
@@ -161,14 +130,6 @@ async def delete_category(
     user: User = Depends(CAN_EDIT),
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    """Delete a category nothing has ever used.
-
-    Anything with a tender, a template or a vendor behind it is refused and has
-    to be retired instead. A tender raised under "Consulting" was raised under
-    Consulting, and deleting the row to tidy a list would leave the tender
-    reading as though it had no category at all - rewriting history to make a
-    dropdown shorter.
-    """
     category = await db.get(Category, category_id)
     if category is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Category not found")

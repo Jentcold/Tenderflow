@@ -1,11 +1,3 @@
-"""Run once after migrations: `python seed.py`
-
-Creates the fixed department list and exactly one bootstrap admin account
-(from SEED_ADMIN_* in .env) so you have a way to log in on a fresh database.
-Does NOT create any sample tenders/submissions/users beyond that admin.
-Safe to re-run: skips anything that already exists.
-"""
-
 import asyncio
 
 from sqlalchemy import select
@@ -23,11 +15,6 @@ from app.models.category import DEFAULT_CATEGORIES, Category
 from app.models.email import EmailTemplate, EmailType
 from app.models.user import User, UserRole, UserStatus
 
-# Purchasing, Supply Chain and Warehouse are departments like any other. That
-# is deliberate: the "purchasing manager" in the approval chain is just the
-# manager OF the Purchasing department — a user with role=manager and
-# department_id pointing here. Adding a second purchasing manager is adding a
-# second user row, with no new role, no enum label and no migration.
 DEPARTMENTS: list[tuple[str, str | None]] = [
     ("IT Department", None),
     ("Human Resources", None),
@@ -37,8 +24,6 @@ DEPARTMENTS: list[tuple[str, str | None]] = [
     ("Finance Department", None),
     ("Legal & Compliance", None),
     ("Administration", None),
-    # The three the workflow names. The code is what the code looks them up by,
-    # so these display names can be changed without breaking the approval chain.
     ("Purchasing", PURCHASING_CODE),
     ("Supply Chain", SUPPLY_CHAIN_CODE),
     ("Warehouse", WAREHOUSE_CODE),
@@ -56,10 +41,6 @@ DEFAULT_TEMPLATES = {
             "Best regards,\nTenderFlow Procurement Team"
         ),
     },
-    # A basket award: this vendor won SOME of the tender. Deliberately never
-    # says "you have won the tender" — a basket can take two lines from them
-    # and three from somebody else, and the winner template would have them
-    # delivering the whole order.
     EmailType.basket_award: {
         "subject": "You have been awarded part of {tender_serial}",
         "body": (
@@ -105,9 +86,6 @@ DEFAULT_TEMPLATES = {
 
 async def seed() -> None:
     async with AsyncSessionLocal() as db:
-        # The category list starts as the four labels the old enum held, so a
-        # fresh database reads the same as an upgraded one. The admin grows it
-        # from there - that is the whole point of it being a table.
         for position, (slug, name) in enumerate(DEFAULT_CATEGORIES):
             existing_category = await db.scalar(select(Category).where(Category.slug == slug))
             if not existing_category:
@@ -118,9 +96,6 @@ async def seed() -> None:
             if not existing:
                 db.add(Department(name=name, code=code))
             elif code and existing.code != code:
-                # Re-run over a database seeded before codes existed: fill the
-                # code in rather than skipping the row, or the approval chain
-                # has no way to find Purchasing.
                 existing.code = code
 
         admin = await db.scalar(select(User).where(User.username == settings.SEED_ADMIN_USERNAME))

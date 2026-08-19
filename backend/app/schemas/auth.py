@@ -4,7 +4,7 @@ from app.schemas.user import UserOut
 
 
 class LoginRequest(BaseModel):
-    username: str  # username OR email, matches original login form
+    username: str
     password: str
 
 

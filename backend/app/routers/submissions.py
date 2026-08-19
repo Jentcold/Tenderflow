@@ -6,7 +6,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import log_audit
-from app.core.deps import require_roles, require_staff
+from app.core.deps import require_staff
+from app.core.scope import require_purchasing
 from app.core.labels import offer_label
 from app.core.pagination import Page, Pagination, paginate
 from app.database import get_db
@@ -22,8 +23,6 @@ from app.schemas.submission import (
 )
 from app.services.storage_service import UPLOAD_DIR
 
-# Staff-only. Vendors are authenticated users too, so gating on
-# get_current_user alone would have let them read this router.
 router = APIRouter(prefix="/submissions", tags=["submissions"], dependencies=[Depends(require_staff)])
 
 
@@ -54,8 +53,6 @@ async def list_submissions(
 
 @router.get("/files/{stored_path:path}")
 async def download_submission_file(stored_path: str) -> FileResponse:
-    """stored_path looks like '<tender_id>/<uuid>_<original_filename>', taken straight from
-    a submission's `files` list. Requires staff auth (unlike the vendor upload endpoint)."""
     path = UPLOAD_DIR / stored_path
     if not path.is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
@@ -75,21 +72,6 @@ async def get_submission(submission_id: uuid.UUID, db: AsyncSession = Depends(ge
 async def list_submission_offers(
     submission_id: uuid.UUID, db: AsyncSession = Depends(get_db)
 ) -> list[SubmissionOfferBrief]:
-    """What a vendor actually proposed, summarised, for the validation step.
-
-    A bid is an envelope: one company may have put three different answers in
-    it. Validating it without seeing them means waving through paperwork, so
-    this is what the Submissions page opens - the offers by name, and which of
-    them substitute something for what was asked for.
-
-    Not gated on the submission's own status, unlike the offers desk. This is
-    the endpoint that decides that status, so it has to be readable first.
-
-    Ordered by arrival, not by price. The lettering has to stay put while
-    somebody reads it, and it is a different sequence from the offers desk's
-    (which sorts by price across the whole tender) on purpose: these letters
-    are positions inside one bid, not the tender-wide ranking.
-    """
     submission = await db.get(Submission, submission_id)
     if not submission:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Submission not found")
@@ -106,8 +88,6 @@ async def list_submission_offers(
     if not offers:
         return []
 
-    # One query for every line, then grouped in memory - the alternative is a
-    # query per offer, and a vendor filing ten of them shouldn't cost ten trips.
     rows = (
         await db.execute(
             select(OfferItem).where(OfferItem.offer_id.in_([o.id for o in offers]))
@@ -117,8 +97,6 @@ async def list_submission_offers(
     for row in rows:
         items.setdefault(row.offer_id, []).append(row)
 
-    # The tender's own list, to work out what each offer left unpriced. Read
-    # once for the whole page rather than per offer.
     requirements = (
         await db.execute(
             select(TenderItem)
@@ -168,7 +146,7 @@ async def list_submission_offers(
 async def update_submission_status(
     submission_id: uuid.UUID,
     payload: SubmissionStatusUpdate,
-    user: User = Depends(require_roles("admin", "procurement")),
+    user: User = Depends(require_purchasing("admin", "procurement")),
     db: AsyncSession = Depends(get_db),
 ) -> Submission:
     submission = await db.get(Submission, submission_id)
@@ -178,15 +156,6 @@ async def update_submission_status(
     was = submission.status
     submission.status = payload.status
 
-    # Validating a bid is what lets its offers be sent to the department
-    # manager (see the gate in POST /offers/forward), so taking the validation
-    # away has to pull them back. Otherwise "rejected" would sit on the
-    # submission while the manager carried on ranking what was inside it.
-    #
-    # Only offers still sitting with the manager are pulled: anything already
-    # shortlisted or further up the chain has been acted on, and yanking it out
-    # would strand that decision. Those are named in the audit line so the
-    # person un-validating can see what they now have to reject by hand.
     pulled = stranded = 0
     if was == SubmissionStatus.validated and payload.status != SubmissionStatus.validated:
         offers = (

@@ -18,11 +18,6 @@ router = APIRouter(prefix="/reports", tags=["reports"], dependencies=[Depends(re
 
 @router.get("/finance")
 async def finance_report(page: Pagination = Depends(), db: AsyncSession = Depends(get_db)) -> dict:
-    """Totals cover every awarded tender; `tenders` is the current page of them.
-
-    The aggregates are computed in SQL rather than by summing the page, so
-    paging through the list never changes the headline numbers.
-    """
     awarded_only = select(Tender).where(Tender.status == TenderStatus.awarded)
 
     totals = (

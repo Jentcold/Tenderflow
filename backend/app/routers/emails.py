@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.core.audit import log_audit
 from app.core.deps import require_roles
+from app.core.scope import require_purchasing
 from app.core.pagination import Page, Pagination, paginate
 from app.database import get_db
 from app.models.email import EmailStatus, EmailTemplate, EmailType, SentEmail
@@ -22,10 +23,8 @@ from app.schemas.email import (
 from app.services.email_service import dispatch_emails, render_template
 from app.services.mailer import send_message
 
-router = APIRouter(prefix="/emails", tags=["emails"], dependencies=[Depends(require_roles("admin", "procurement"))])
+router = APIRouter(prefix="/emails", tags=["emails"], dependencies=[Depends(require_purchasing("admin", "procurement"))])
 
-# Audit-log wording per template. A dict rather than a ternary so adding a
-# fourth type can't silently get filed under the wrong name.
 TEMPLATE_LABELS = {
     EmailType.winner: "Winner",
     EmailType.loser: "Non-Winner",
@@ -55,7 +54,7 @@ async def list_templates(db: AsyncSession = Depends(get_db)) -> list[EmailTempla
 async def update_template(
     email_type: EmailType,
     payload: EmailTemplateUpdate,
-    user: User = Depends(require_roles("admin", "procurement")),
+    user: User = Depends(require_purchasing("admin", "procurement")),
     db: AsyncSession = Depends(get_db),
 ) -> EmailTemplate:
     template = await db.get(EmailTemplate, email_type)
@@ -83,8 +82,6 @@ async def email_log(
     page: Pagination = Depends(),
     db: AsyncSession = Depends(get_db),
 ) -> Page[SentEmailOut]:
-    # Ordered by queue time, not sent_at — a failed email has no sent_at and
-    # would otherwise sort unpredictably.
     stmt = select(SentEmail).order_by(SentEmail.created_at.desc())
     if status_filter is not None:
         stmt = stmt.where(SentEmail.status == status_filter)
@@ -108,8 +105,6 @@ async def get_sent_email(email_id: uuid.UUID, db: AsyncSession = Depends(get_db)
 
 @router.get("/config")
 async def mail_config(user: User = Depends(require_roles("admin"))) -> dict:
-    """What the mail settings actually are, so a silent non-delivery can be
-    diagnosed without shell access. Never returns SMTP_PASSWORD."""
     return {
         "configured": settings.mail_configured,
         "host": settings.SMTP_HOST or None,
@@ -119,7 +114,6 @@ async def mail_config(user: User = Depends(require_roles("admin"))) -> dict:
         "use_ssl": settings.SMTP_USE_SSL,
         "from": settings.MAIL_FROM,
         "from_name": settings.MAIL_FROM_NAME,
-        # Loud on purpose: this one silently reroutes every vendor email.
         "redirect_all_mail_to": settings.MAIL_REDIRECT_TO or None,
     }
 
@@ -130,11 +124,6 @@ async def send_test_email(
     user: User = Depends(require_roles("admin")),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Prove the SMTP settings work without running a whole award.
-
-    Sends inline rather than as a background task: the entire point is to see
-    the failure, and a BackgroundTask would bury it in the server log.
-    """
     if not settings.mail_configured:
         raise HTTPException(
             status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -148,7 +137,7 @@ async def send_test_email(
     )
     try:
         await send_message(to, subject, body)
-    except Exception as exc:  # noqa: BLE001 — the error text is the whole point
+    except Exception as exc:  # noqa: BLE001
         raise HTTPException(
             status.HTTP_502_BAD_GATEWAY, f"SMTP rejected the message — {type(exc).__name__}: {exc}"
         ) from exc
@@ -163,11 +152,9 @@ async def send_test_email(
 async def resend_email(
     email_id: uuid.UUID,
     background: BackgroundTasks,
-    user: User = Depends(require_roles("admin", "procurement")),
+    user: User = Depends(require_purchasing("admin", "procurement")),
     db: AsyncSession = Depends(get_db),
 ) -> SentEmail:
-    """Re-queue an email whose delivery failed. Re-sends the stored subject and
-    body verbatim, so what the vendor gets matches what the log shows."""
     email = await db.get(SentEmail, email_id)
     if not email:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Email not found")

@@ -1,6 +1,3 @@
-"""SMTP transport. Knows nothing about tenders — it takes a recipient, a
-subject and a body, and either delivers or raises."""
-
 import logging
 from email.message import EmailMessage
 from email.utils import formataddr
@@ -13,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class MailNotConfigured(RuntimeError):
-    """Raised when a send is attempted with no SMTP_HOST set."""
+    pass
 
 
 def build_message(to_email: str, subject: str, body: str) -> EmailMessage:
@@ -22,8 +19,6 @@ def build_message(to_email: str, subject: str, body: str) -> EmailMessage:
 
     redirect = settings.MAIL_REDIRECT_TO.strip()
     if redirect:
-        # Whose mail this was stays visible in three places, because the whole
-        # danger of a redirect is forgetting it is on.
         message["To"] = redirect
         message["X-Original-To"] = to_email
         message["Subject"] = f"[TEST -> {to_email}] {subject}"
@@ -37,7 +32,6 @@ def build_message(to_email: str, subject: str, body: str) -> EmailMessage:
 
 
 async def send_message(to_email: str, subject: str, body: str) -> None:
-    """Deliver one email. Raises aiosmtplib.SMTPException (or OSError) on failure."""
     if not settings.mail_configured:
         raise MailNotConfigured("SMTP_HOST is empty")
 
@@ -49,8 +43,6 @@ async def send_message(to_email: str, subject: str, body: str) -> None:
         port=settings.SMTP_PORT,
         username=settings.SMTP_USERNAME or None,
         password=settings.SMTP_PASSWORD or None,
-        # Implicit TLS (:465) and STARTTLS (:587) are mutually exclusive —
-        # asking aiosmtplib for both at once is an error.
         use_tls=settings.SMTP_USE_SSL,
         start_tls=settings.SMTP_START_TLS and not settings.SMTP_USE_SSL,
         timeout=settings.SMTP_TIMEOUT_SECONDS,

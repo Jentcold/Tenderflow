@@ -6,19 +6,12 @@
     <title>TenderFlow - Procurement Management System</title>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <!-- ?v= is a cache-buster, and it is load-bearing. There is no build step
-         here, so the browser caches script.js and style.css by filename alone.
-         index.html changes on every edit and is re-fetched; the other two are
-         served from cache, which leaves new HTML being driven by old JS - the
-         form the JS is reaching for is gone, and every button on it dies with
-         "Cannot set properties of null". BUMP THIS ON EVERY EDIT to either
-         file. -->
-    <link href="style.css?v=20260820a" rel="stylesheet">
+
+    <link href="style.css?v=20260820c" rel="stylesheet">
 </head>
 <body>
     <div class="toast-container" id="toastContainer"></div>
 
-    <!-- Login Page -->
     <div class="login-container" id="loginPage">
         <div class="login-box">
             <div class="login-logo">
@@ -42,12 +35,10 @@
                     Sign In
                 </button>
             </form>
-            <!-- No vendor registration: vendors do not have accounts. They reach a
-                 tender through a per-vendor link the purchasing team sends. -->
+
         </div>
     </div>
 
-    <!-- Main Application -->
     <div class="app-container" id="appContainer">
         <div class="sidebar-overlay" id="sidebarOverlay"></div>
         <aside class="sidebar" id="sidebar">
@@ -97,8 +88,6 @@
         </main>
     </div>
 
-
-    <!-- Create Tender Modal -->
     <div class="modal-overlay" id="createTenderModal">
         <div class="modal modal-wide">
             <div class="modal-header">
@@ -108,6 +97,10 @@
             <div class="modal-body">
                 <form id="createTenderForm">
                     <input type="hidden" id="editTenderId">
+
+                    <input type="hidden" id="tenderTemplateId">
+
+                    <div class="template-pills" id="templatePills"></div>
                     <div class="form-row">
                         <div class="form-group">
                             <label>Tender Name *</label>
@@ -115,15 +108,10 @@
                         </div>
                         <div class="form-group">
                             <label>Category</label>
-                            <!-- Filled from the admin's category list at open time
-                                 (see openCreateTenderModal). Hardcoding four options
-                                 here was the enum's shape leaking into the markup. -->
+
                             <select class="form-control" id="tenderCategory"></select>
                         </div>
-                        <!-- Not a field. The department comes from the account
-                             of whoever is filling this in, so it is shown to
-                             confirm where the request will go, not offered as
-                             a choice. -->
+
                         <div class="form-group">
                             <label>Requesting Department</label>
                             <div class="form-static" id="tenderDepartmentLabel">-</div>
@@ -165,7 +153,6 @@
         </div>
     </div>
 
-    <!-- View Tender Modal -->
     <div class="modal-overlay" id="viewTenderModal">
         <div class="modal" style="max-width: 700px;">
             <div class="modal-header">
@@ -179,7 +166,6 @@
         </div>
     </div>
 
-    <!-- Create User Modal -->
     <div class="modal-overlay" id="createUserModal">
         <div class="modal" style="max-width: 500px;">
             <div class="modal-header">
@@ -216,9 +202,7 @@
                             <option value="supply_chain">Supply Chain Head</option>
                             <option value="finance">Finance Team</option>
                             <option value="employee">Employee</option>
-                            <!-- Hidden so it can't be picked for a new account, but present so
-                                 editing a vendor has something to select. The API refuses a role
-                                 change to or from vendor either way. -->
+
                             <option value="vendor" id="userRoleVendorOption" hidden>Vendor</option>
                         </select>
                         <small style="color: var(--text-muted); font-size: 12px;" id="userRoleHelp">An Employee can raise tender requests and track their own, nothing else. Vendors register themselves.</small>
@@ -239,11 +223,6 @@
         </div>
     </div>
 
-
-    <!-- Basket source picker -->
-    <!-- Replaces a <select> per basket row. With several vendors bidding, the
-         dropdown was a list of near-identical strings; grouped by supplier in a
-         modal it answers the question purchasing actually asks. -->
     <div class="modal-overlay" id="basketPickModal">
         <div class="modal" style="max-width: 760px;">
             <div class="modal-header">
@@ -257,10 +236,6 @@
         </div>
     </div>
 
-    <!-- Receive Delivery Modal (warehouse) -->
-    <!-- Wide, because the check-in sheet is also the thing that gets printed and
-         marked up by hand at the door. `receive-modal` is what the print rules
-         in style.css key off to drop everything else on the page. -->
     <div class="modal-overlay" id="receiveModal">
         <div class="modal receive-modal" style="max-width: 1100px;">
             <div class="modal-header no-print">
@@ -278,11 +253,49 @@
         </div>
     </div>
 
-    <!-- One tender's bids -->
-    <!-- Wide and tall, but deliberately not full screen: it sits over the list
-         of tenders it was opened from, and seeing the edge of that list is what
-         tells you this is a look at one row rather than a page you navigated
-         to. The table inside scrolls; the dialog itself doesn't grow. -->
+    <div class="modal-overlay" id="templateModal">
+        <div class="modal modal-wide">
+            <div class="modal-header">
+                <h2 class="modal-title" id="templateModalTitle">Template</h2>
+                <button class="modal-close" onclick="closeModal('templateModal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="templateId">
+                <div id="templateFields"></div>
+                <div class="form-group full-width">
+                    <label>What this template fills in *</label>
+                    <div class="items-table-wrap">
+                        <table class="items-table" id="templateItemsTable">
+                            <thead>
+                                <tr>
+                                    <th class="col-num">#</th>
+                                    <th>Item *</th>
+                                    <th>Specifications</th>
+                                    <th class="col-qty">QTY *</th>
+                                    <th class="col-unit">Unit</th>
+                                    <th>Notes</th>
+                                    <th class="col-act"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="templateItemsBody"></tbody>
+                        </table>
+                    </div>
+                    <div class="items-action-bar">
+                        <button type="button" class="btn btn-sm btn-secondary" onclick="addItemRow(null, 'templateItemsBody')">
+                            <i class="fas fa-plus"></i> Add Row
+                        </button>
+                        <small class="form-hint">Exactly what somebody pressing this pill gets in their request. They can still change any of it.</small>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('templateModal')">Cancel</button>
+                <button class="btn btn-warning" id="templateRetireBtn" style="display: none;"></button>
+                <button class="btn btn-accent" onclick="saveTemplate()"><i class="fas fa-floppy-disk"></i> Save template</button>
+            </div>
+        </div>
+    </div>
+
     <div class="modal-overlay" id="tenderSubmissionsModal">
         <div class="modal modal-xl">
             <div class="modal-header">
@@ -296,7 +309,6 @@
         </div>
     </div>
 
-    <!-- Submission Detail Modal -->
     <div class="modal-overlay" id="submissionDetailModal">
         <div class="modal" style="max-width: 700px;">
             <div class="modal-header">
@@ -310,7 +322,6 @@
         </div>
     </div>
 
-    <!-- Generic confirm-with-reason modal (used for reject flows) -->
     <div class="modal-overlay" id="reasonModal">
         <div class="modal" style="max-width: 500px;">
             <div class="modal-header">
@@ -331,7 +342,6 @@
         </div>
     </div>
 
-    <!-- Generic confirm dialog -->
     <div class="modal-overlay" id="confirmModal">
         <div class="modal" style="max-width: 460px;">
             <div class="modal-header">
@@ -348,7 +358,6 @@
         </div>
     </div>
 
-    <!-- Extend Deadline Modal -->
     <div class="modal-overlay" id="extendDeadlineModal">
         <div class="modal" style="max-width: 450px;">
             <div class="modal-header">
@@ -373,7 +382,6 @@
         </div>
     </div>
 
-    <!-- Email Preview Modal -->
     <div class="modal-overlay" id="emailPreviewModal">
         <div class="modal" style="max-width: 700px;">
             <div class="modal-header">
@@ -387,6 +395,6 @@
         </div>
     </div>
 
-    <script src="script.js?v=20260820a"></script>
+    <script src="script.js?v=20260820c"></script>
 </body>
 </html>

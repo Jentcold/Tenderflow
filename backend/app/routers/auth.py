@@ -18,9 +18,6 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> TokenResponse:
     identifier = payload.username.strip().lower()
 
-    # Per-account lockout, checked before the password is looked at. The IP
-    # limiter above caps volume from one source; this is what stops a
-    # distributed guess against a single account.
     retry_after = await login_throttle.seconds_remaining(identifier)
     if retry_after:
         raise lockout_error(retry_after)
@@ -30,15 +27,9 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> To
     )
 
     if user is None or user.status != UserStatus.active or not verify_password(payload.password, user.password_hash):
-        # Recorded for unknown usernames too, so the lockout response can't be
-        # used to enumerate which accounts exist.
         await login_throttle.record_failure(identifier)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid username or password")
 
-    # Vendors don't log in. They are directory records reached through a link
-    # addressed to them, and any `vendor` account still on the table predates
-    # that decision. Refused after the password check, not before, so this
-    # can't be used to find out which accounts are vendors.
     if user.role == UserRole.vendor:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
@@ -60,8 +51,6 @@ async def me(user: User = Depends(get_current_user)) -> User:
 
 @router.post("/logout")
 async def logout(user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)) -> dict:
-    # JWTs are stateless here, so "logout" is a client-side token discard.
-    # This endpoint just records the audit trail entry to match old behavior.
     await log_audit(db, "User Logout", f"{user.name} logged out", user.name)
     await db.commit()
     return {"detail": "Logged out"}

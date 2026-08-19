@@ -1,26 +1,22 @@
 :root {
-    /* Ink — dark brand surfaces (sidebar, topbar, login gradient) */
+
     --ink: #0B1220;
     --ink-light: #16233A;
     --ink-dark: #060A12;
 
-    /* Accent — corporate blue, used with intent */
     --accent: #3B7DDD;
     --accent-light: #6CA0EA;
     --accent-dark: #285DAE;
 
-    /* Status colors */
     --success: #3FAE72;
     --warning: #D9A23B;
     --danger: #E2645A;
     --info: #5B9BD9;
 
-    /* Surfaces */
     --bg-primary: #0A0F1A;
     --bg-secondary: #101826;
     --bg-tertiary: #182335;
 
-    /* Text */
     --text-primary: #EAF1FB;
     --text-secondary: #93A5C2;
     --text-muted: #5E7091;
@@ -73,7 +69,6 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
     outline-offset: 2px;
 }
 
-/* ============ LOGIN ============ */
 .login-container {
     min-height: 100vh;
     display: flex;
@@ -159,7 +154,6 @@ select.form-control {
 .form-error { color: var(--danger); font-size: 12px; margin-top: 4px; display: none; }
 .form-error.show { display: block; }
 
-/* ============ BUTTONS ============ */
 .btn {
     display: inline-flex;
     align-items: center;
@@ -188,7 +182,6 @@ select.form-control {
 .btn-icon { padding: 8px; width: 36px; height: 36px; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
 
-/* ============ APP SHELL ============ */
 .app-container { display: none; min-height: 100vh; }
 .app-container.active { display: flex; }
 
@@ -315,7 +308,6 @@ select.form-control {
 .notification-dropdown-empty i { font-size: 32px; margin-bottom: 12px; display: block; }
 .content-area { padding: 32px; }
 
-/* ============ STATS / CARDS ============ */
 .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 24px; margin-bottom: 32px; }
 .stat-card {
     background: var(--bg-secondary);
@@ -343,8 +335,6 @@ select.form-control {
 .card-title { font-size: 16px; font-weight: 600; color: var(--text-primary); }
 .card-body { padding: 24px; }
 
-/* Paging control. Sits inside .card-body, which is why it carries its own top
-   border rather than relying on the table's last row. */
 .pager {
     display: flex;
     align-items: center;
@@ -364,7 +354,37 @@ select.form-control {
 .pager-buttons { display: flex; gap: 8px; }
 .pager .btn[disabled] { opacity: 0.4; cursor: not-allowed; }
 
-.table-container { overflow-x: auto; }
+.table-container {
+    overflow: auto;
+    max-height: var(--table-viewport, 60vh);
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+}
+
+.table-container thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+}
+
+.table-container::-webkit-scrollbar { width: 10px; height: 10px; }
+.table-container::-webkit-scrollbar-track { background: transparent; }
+.table-container::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border: 2px solid var(--bg-secondary);
+    border-radius: 6px;
+}
+.table-container::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+.table-container::-webkit-scrollbar-corner { background: transparent; }
+
+.dash-panel .table-container { max-height: var(--panel-viewport, 340px); }
+
+.modal .table-container {
+    max-height: none;
+    overflow: visible;
+    overflow-x: auto;
+}
+.modal .table-container thead th { position: static; }
 table { width: 100%; border-collapse: collapse; }
 th, td { padding: 14px 16px; text-align: left; border-bottom: 1px solid var(--border); }
 th {
@@ -384,7 +404,6 @@ tr:hover td { background: rgba(59, 125, 221, 0.04); }
 .badge-info { background: rgba(91, 155, 217, 0.16); color: var(--info); }
 .badge-secondary { background: var(--bg-tertiary); color: var(--text-secondary); }
 
-/* ============ MODALS ============ */
 .modal-overlay {
     display: none; position: fixed; inset: 0;
     background: rgba(4, 7, 13, 0.7);
@@ -401,10 +420,6 @@ tr:hover td { background: rgba(59, 125, 221, 0.04); }
     animation: scaleIn 0.25s ease-out;
 }
 
-/* For a modal whose content is a table rather than a column of fields. 600px
-   forces the requirement table into its own horizontal scrollbar, which means
-   you can't see the notes column and the item name at the same time - and
-   those are exactly the two you're filling in together. */
 .modal.modal-wide { max-width: 1000px; }
 .modal-header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
 .modal-title { font-size: 18px; font-weight: 600; }
@@ -417,7 +432,6 @@ tr:hover td { background: rgba(59, 125, 221, 0.04); }
 .form-group.full-width { grid-column: span 2; }
 textarea.form-control { min-height: 100px; resize: vertical; }
 
-/* ============ TOASTS ============ */
 .toast-container { position: fixed; top: 20px; right: 20px; z-index: 2000; display: flex; flex-direction: column; gap: 12px; }
 .toast {
     background: var(--bg-secondary);
@@ -466,8 +480,6 @@ textarea.form-control { min-height: 100px; resize: vertical; }
 .chip-remove { cursor: pointer; color: var(--text-muted); }
 .chip-remove:hover { color: var(--danger); }
 
-/* The manager's reason for sending a request back. Sits inside the requester's
-   table row, so it has to read as a quoted remark rather than another column. */
 .request-feedback {
     display: flex;
     align-items: flex-start;
@@ -483,7 +495,6 @@ textarea.form-control { min-height: 100px; resize: vertical; }
     white-space: normal;
 }
 .request-feedback i { color: var(--warning); margin-top: 2px; }
-
 
 .tabs { display: flex; border-bottom: 2px solid var(--border); margin-bottom: 24px; flex-wrap: wrap; }
 .tab {
@@ -507,7 +518,6 @@ textarea.form-control { min-height: 100px; resize: vertical; }
 }
 .tender-link button { flex-shrink: 0; }
 
-/* ============ VENDOR-FACING PAGE ============ */
 .vendor-container { min-height: 100vh; background: var(--bg-primary); padding: 40px 20px; }
 .vendor-card { max-width: 800px; margin: 0 auto; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); overflow: hidden; }
 .vendor-header { background: var(--ink); color: var(--text-primary); padding: 32px; text-align: center; border-bottom: 3px solid var(--accent); }
@@ -537,7 +547,6 @@ textarea.form-control { min-height: 100px; resize: vertical; }
 .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(4, 7, 13, 0.6); z-index: 99; }
 .sidebar-overlay.active { display: block; }
 
-/* Tender status */
 .status-badge-large { display: inline-flex; align-items: center; gap: 8px; padding: 8px 16px; border-radius: var(--radius); font-weight: 600; }
 .status-badge-large.open { background: rgba(63, 174, 114, 0.14); color: var(--success); }
 .status-badge-large.closed { background: var(--bg-tertiary); color: var(--text-secondary); }
@@ -552,7 +561,6 @@ textarea.form-control { min-height: 100px; resize: vertical; }
 
 .countdown { font-family: 'IBM Plex Mono', monospace; font-size: 14px; color: var(--warning); }
 
-/* Award stamp */
 .stamp-badge {
     display: inline-flex; align-items: center; justify-content: center;
     width: 84px; height: 84px;
@@ -588,7 +596,6 @@ textarea.form-control { min-height: 100px; resize: vertical; }
 .submission-info-grid .info-item label { font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-family: 'IBM Plex Mono', monospace; letter-spacing: 0.05em; }
 .submission-info-grid .info-item p { font-weight: 500; margin-top: 2px; }
 
-/* ============ FULL-PAGE LOADING / ERROR ============ */
 .page-loading { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 80px 20px; color: var(--text-secondary); gap: 12px; }
 .page-loading i { font-size: 28px; color: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
 
@@ -605,16 +612,8 @@ textarea.form-control { min-height: 100px; resize: vertical; }
     .login-box { padding: 32px 24px; }
 }
 
-/* ============================================
-   THE REQUIREMENT TABLE ON THE REQUEST FORM
-   ============================================
-   The request form used to be a paragraph in a textarea. It is a table now:
-   one row per thing the requester needs, which is what goes out to vendors and
-   what the warehouse later ticks off. */
-
 .items-table-wrap {
-    /* The table is wider than the modal on a narrow screen. Scrolling it
-       inside its own box keeps the modal itself from scrolling sideways. */
+
     overflow-x: auto;
     border: 1px solid var(--border);
     border-radius: var(--radius);
@@ -623,9 +622,7 @@ textarea.form-control { min-height: 100px; resize: vertical; }
 
 .items-table {
     width: 100%;
-    /* Below this the columns start truncating their own inputs, so the wrapper
-       scrolls instead. In the wide modal there is room for all of it, so this
-       only bites on a phone. */
+
     min-width: 620px;
     border-collapse: collapse;
 }
@@ -652,7 +649,7 @@ textarea.form-control { min-height: 100px; resize: vertical; }
 }
 
 .items-table .form-control {
-    /* Inputs in a grid read better flush than boxed - the cell is the box. */
+
     padding: 7px 9px;
     font-size: 13px;
     background: var(--bg-secondary);
@@ -693,8 +690,6 @@ textarea.form-control { min-height: 100px; resize: vertical; }
     margin-top: 10px;
 }
 
-/* A value the form shows but does not let you change - the requester's own
-   department, which comes from their account. */
 .form-static {
     padding: 10px 12px;
     background: var(--bg-tertiary);
@@ -737,27 +732,15 @@ textarea.form-control { min-height: 100px; resize: vertical; }
     flex-shrink: 0;
 }
 
-/* ============================================
-   THE REQUEST MODAL
-   ============================================
-   .modal-wide already gives it the room; these rules spend that room on the
-   table rather than on the three short fields above it. */
-
-/* The top row holds name, category and department. The shared .form-row is a
-   two-column grid, so the third field was wrapping onto a line of its own and
-   pushing the table down. */
 #createTenderModal .form-row {
     grid-template-columns: 2fr 1fr 1fr;
     align-items: start;
 }
 
-/* full-width spans 2 in the shared grid; the row above is 3 wide here. */
 #createTenderModal .form-group.full-width {
     grid-column: 1 / -1;
 }
 
-/* Vertical space back, so the whole form clears a laptop screen without
-   scrolling. The table is the part worth seeing; the chrome around it isn't. */
 #createTenderModal .modal-body {
     padding: 18px 24px;
 }
@@ -779,14 +762,6 @@ textarea.form-control { min-height: 100px; resize: vertical; }
     }
 }
 
-/* ============================================
-   THE MANAGER'S REVIEW SCREEN
-   ============================================
-   The pending list used to be one large card per tender, with four facts
-   spread across a grid. It is a table now, and the detail that used to be
-   spread out lives behind one click - including the item rows, which is the
-   part an approver actually needs and the part the card never showed. */
-
 .row-clickable {
     cursor: pointer;
 }
@@ -800,7 +775,6 @@ textarea.form-control { min-height: 100px; resize: vertical; }
     font-size: 12px;
 }
 
-/* Four facts on one line rather than a grid of boxes. */
 .review-facts {
     display: flex;
     flex-wrap: wrap;
@@ -815,8 +789,6 @@ textarea.form-control { min-height: 100px; resize: vertical; }
     margin-top: 2px;
 }
 
-/* Read-only version of the requirement table: no inputs, so it needs the
-   padding the editable one delegates to its form controls. */
 .items-table-read td {
     padding: 9px 8px;
     font-size: 13px;
@@ -836,9 +808,6 @@ textarea.form-control { min-height: 100px; resize: vertical; }
     border-top: 1px solid var(--border);
 }
 
-/* Approve is the button they reach for most, so it sits where the thumb and
-   the eye both land last. Reject is the destructive one and sits furthest from
-   it, with Send back between them. */
 .review-actions .btn {
     min-width: 130px;
     justify-content: center;
@@ -860,24 +829,11 @@ textarea.form-control { min-height: 100px; resize: vertical; }
     .review-actions .btn { flex: 1; min-width: 0; }
 }
 
-/* Inline SVG for the icon-only chrome buttons.
-   These carry no text label, so when the Font Awesome CDN is slow, blocked or
-   simply unreachable the button renders as a blank square that still works -
-   which is exactly what it looked like. An inline SVG has nothing to fetch.
-   `currentColor` keeps them inheriting the hover and theme colours the font
-   icons had. */
 .icon {
     width: 1em;
     height: 1em;
     display: block;
 }
-
-/* ============================================
-   THE OFFERS DESK
-   ============================================
-   One tender at a time, chosen from a picker, and one row per offer. It used
-   to stack a card per tender and a card per offer inside that, so comparing
-   three bids meant scrolling past everything else first. */
 
 .offers-picker {
     display: flex;
@@ -907,7 +863,6 @@ textarea.form-control { min-height: 100px; resize: vertical; }
     background: var(--bg-tertiary);
 }
 
-/* Shortlisted offers earn a rail rather than another badge in the row. */
 .offers-table tr.is-shortlisted td:first-child {
     box-shadow: inset 3px 0 0 var(--accent);
 }
@@ -925,8 +880,6 @@ textarea.form-control { min-height: 100px; resize: vertical; }
     transform: rotate(90deg);
 }
 
-/* The expanded lines sit in the flow of the same table, so they line up under
-   the offer they belong to instead of floating in a panel of their own. */
 .offer-lines > td {
     background: var(--bg-tertiary);
     padding: 16px !important;
@@ -949,11 +902,6 @@ textarea.form-control { min-height: 100px; resize: vertical; }
     font-size: 13px;
 }
 
-/* --- substitutes are coloured, not captioned ---
-   A substitute is a vendor answering with something other than what was asked
-   for. That is worth seeing at a glance across a whole quotation, which a
-   badge per row buried: the badge repeated the word on every affected line and
-   made the table read as busier than the fact deserved. */
 .row-substitute td {
     background: rgba(245, 158, 11, 0.13);
 }
@@ -993,11 +941,6 @@ textarea.form-control { min-height: 100px; resize: vertical; }
     color: var(--text-muted);
 }
 
-
-/* Purchasing's first pass: the tick that sends one offer up to the department
-   manager. Sits in the actions column beside the rank select, and reads as a
-   toggle rather than a form field - it is a decision about one row, not data
-   being entered. */
 .forward-tick {
     display: inline-flex;
     align-items: center;
@@ -1022,29 +965,17 @@ textarea.form-control { min-height: 100px; resize: vertical; }
     margin: 0;
 }
 
-/* Already sent up. Coloured so a glance down the column separates what the
-   manager can see from what is still sitting here. */
 .forward-tick:has(input:checked) {
     border-color: var(--info);
     color: var(--info);
 }
 
-/* Shortlisted or further along: the manager has acted on it, so the tick can no
-   longer take it back. Rejecting it is the way out, and that asks for a reason. */
 .forward-tick:has(input:disabled) {
     opacity: 0.55;
     cursor: not-allowed;
 }
 
 .forward-tick:has(input:disabled) input { cursor: not-allowed; }
-
-
-/* ============================================
-   ROLE DASHBOARDS
-   ============================================
-   One wide panel of what is waiting on you, then two narrower ones underneath:
-   a secondary list on the left, your own recent activity on the right. The
-   same shape for every desk, so the app doesn't read as five different apps. */
 
 .dash-panel {
     margin-bottom: 20px;
@@ -1057,8 +988,6 @@ textarea.form-control { min-height: 100px; resize: vertical; }
     align-items: start;
 }
 
-/* Two columns is a reading convenience, not a layout the content depends on.
-   Below this the panels stack, which is also what a phone gets. */
 @media (max-width: 1100px) {
     .dash-split {
         grid-template-columns: 1fr;
@@ -1069,8 +998,6 @@ textarea.form-control { min-height: 100px; resize: vertical; }
     margin-bottom: 0;
 }
 
-/* Urgent earns a rail rather than another badge competing with the one already
-   in the row. */
 .offers-table tr.is-urgent td:first-child {
     box-shadow: inset 3px 0 0 var(--danger);
 }
@@ -1099,8 +1026,7 @@ textarea.form-control { min-height: 100px; resize: vertical; }
     font-size: 12px;
     color: var(--text-muted);
     margin-top: 2px;
-    /* Audit details carry serials and ids and run long. One line each keeps the
-       panel a scannable list rather than a wall. */
+
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1111,10 +1037,6 @@ textarea.form-control { min-height: 100px; resize: vertical; }
     color: var(--text-muted);
     margin-top: 4px;
 }
-
-/* ============================================
-   WAREHOUSE: THE CHECK-IN SHEET
-   ============================================ */
 
 .receive-head {
     display: grid;
@@ -1159,9 +1081,6 @@ textarea.form-control { min-height: 100px; resize: vertical; }
     accent-color: var(--success, #158a5a);
 }
 
-/* An unticked line is the whole point of the screen, so it is coloured for the
-   same reason a substitute is on the offers desk: it has to survive a glance
-   down a long table. */
 .receive-table tr.is-flagged td {
     background: rgba(245, 158, 11, 0.13);
 }
@@ -1191,21 +1110,10 @@ textarea.form-control { min-height: 100px; resize: vertical; }
     min-width: 140px;
 }
 
-/* The blank column that only exists on paper, for marking up by hand. */
 .print-only {
     display: none;
 }
 
-/* ============================================
-   PRINTING THE CHECK-IN SHEET
-   ============================================
-   The warehouse prints this, walks the pallet with it, marks it up and types
-   the result in afterwards. So the printed page is the item table and the
-   header identifying the delivery — no sidebar, no modal chrome, no buttons,
-   and no form controls, which print as empty boxes and confuse the paper.
-
-   Driven by `printing-receipt` on <body>, set only for the duration of the
-   print dialog, so nothing here affects an ordinary Ctrl+P of another page. */
 @media print {
     body.printing-receipt .sidebar,
     body.printing-receipt .topbar,
@@ -1235,7 +1143,6 @@ textarea.form-control { min-height: 100px; resize: vertical; }
         display: none !important;
     }
 
-    /* The hand-marking column, which exists only on paper. */
     body.printing-receipt .print-only {
         display: table-cell;
     }
@@ -1245,7 +1152,6 @@ textarea.form-control { min-height: 100px; resize: vertical; }
         border-bottom: 1px solid #999;
     }
 
-    /* Ink, and legibility on paper: the app is dark, a printout is not. */
     body.printing-receipt,
     body.printing-receipt #receiveModal .modal,
     body.printing-receipt #receiveModal table,
@@ -1262,21 +1168,14 @@ textarea.form-control { min-height: 100px; resize: vertical; }
 
     body.printing-receipt .table-container {
         overflow: visible !important;
+        max-height: none !important;
     }
 
-    /* A pallet's worth of lines runs past one page; keep rows whole. */
     body.printing-receipt tr {
         page-break-inside: avoid;
     }
 }
 
-/* ============================================
-   OFFERS: GROUPED BY SUPPLIER (purchasing only)
-   ============================================
-   A separator row rather than a column, because the vendor repeats down every
-   row of a group and a column would print the same name three times for the
-   same fact. The manager never sees this: their payload carries no vendor at
-   all, which is the point of the blind comparison. */
 .offers-table tr.vendor-group td {
     background: var(--bg-tertiary);
     padding: 8px 16px;
@@ -1300,15 +1199,6 @@ textarea.form-control { min-height: 100px; resize: vertical; }
     margin-left: 10px;
 }
 
-/* ============================================
-   HOW AN OFFER DIFFERS FROM WHAT WAS ASKED FOR
-   ============================================
-   Three kinds, three colours, same idea as the substitute highlight: the fact
-   has to survive a glance down a long table.
-
-   Missing is the one that needed inventing. A substitute and an addition are
-   both rows you can see; a line nobody priced is invisible by nature, so the
-   table grows a row for it that exists only to say it isn't there. */
 .row-added td {
     background: rgba(56, 139, 253, 0.13);
 }
@@ -1340,9 +1230,6 @@ textarea.form-control { min-height: 100px; resize: vertical; }
     border-color: var(--danger);
 }
 
-/* ============================================
-   BASKET: THE SOURCE PICKER
-   ============================================ */
 .basket-source-btn {
     display: flex;
     align-items: center;
@@ -1380,8 +1267,6 @@ textarea.form-control { min-height: 100px; resize: vertical; }
     border-bottom: 1px solid var(--border);
 }
 
-/* One row per quote. A whole row is the click target, not a radio button in
-   the corner of it — this list is read quickly and aimed at roughly. */
 .pick-option {
     display: flex;
     align-items: center;
@@ -1431,12 +1316,6 @@ textarea.form-control { min-height: 100px; resize: vertical; }
     white-space: nowrap;
 }
 
-/* ============================================
-   SUBMISSIONS: THE OFFERS INSIDE A BID
-   ============================================
-   Opening a bid shows every offer in it, priced line by line. Each one gets a
-   bordered block so two offers from the same company don't read as one long
-   table. */
 .sub-offer {
     border: 1px solid var(--border);
     border-radius: var(--radius);
@@ -1466,12 +1345,6 @@ textarea.form-control { min-height: 100px; resize: vertical; }
     margin-top: 6px;
 }
 
-/* ------------------------------------------------ the extra-wide dialog */
-/* For a dialog whose job is reading a table across: the bids on one tender,
-   where four companies and eight columns have to be comparable at a glance.
-   Sized off the viewport rather than fixed, and deliberately short of filling
-   it - a sliver of the page underneath is what says "this is one row of that
-   list", not somewhere you navigated to. */
 .modal.modal-xl {
     max-width: min(1320px, 92vw);
     width: 92vw;
@@ -1481,18 +1354,12 @@ textarea.form-control { min-height: 100px; resize: vertical; }
     overflow-y: auto;
 }
 
-/* A required document that never arrived. Same chip, said plainly - a gap in
-   the list reads as "there were only two", which is the wrong conclusion. */
 .chip-missing {
     color: var(--danger);
     border-color: var(--danger);
     opacity: 0.85;
 }
 
-/* ------------------------------------------- splitting a basket requirement */
-/* One requirement bought from two places is two rows that have to read as one
-   thing. The continuation rows are tinted and un-numbered, and the item name
-   appears once - repeating it would read as two separate requirements. */
 .basket-split-row > td { border-top: none; }
 .basket-split-row {
     background: color-mix(in srgb, var(--accent) 5%, transparent);
@@ -1502,9 +1369,7 @@ textarea.form-control { min-height: 100px; resize: vertical; }
     padding: 2px 8px;
     font-size: 11px;
 }
-/* "3 of 4 allocated". A split that doesn't add up totals correctly and simply
-   buys three of something four people need, so it is called out rather than
-   left to be noticed. */
+
 .split-tally {
     font-size: 11px;
     margin-top: 4px;
@@ -1513,7 +1378,6 @@ textarea.form-control { min-height: 100px; resize: vertical; }
 .split-tally.is-ok  { color: var(--success); }
 .split-tally.is-off { color: var(--warning); }
 
-/* The picker's search box and the category note under the directory. */
 .pick-search { margin-bottom: 14px; }
 .pick-option.is-empty { cursor: default; }
 .pick-widen {
@@ -1524,10 +1388,6 @@ textarea.form-control { min-height: 100px; resize: vertical; }
 }
 .pick-widen a { color: var(--accent-light); }
 
-/* ------------------------------------------------------ category tick list */
-/* A vendor supplies several things, so the picker is tick boxes rather than a
-   dropdown. A <select multiple> is a control almost nobody knows they may pick
-   more than one from, let alone how to do it with a keyboard. */
 .category-picker {
     display: flex;
     flex-wrap: wrap;
@@ -1549,3 +1409,51 @@ textarea.form-control { min-height: 100px; resize: vertical; }
     white-space: nowrap;
 }
 .category-tick input { cursor: pointer; }
+
+.template-pills {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 18px;
+}
+.template-pills:empty { display: none; }
+.pill-label {
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    margin-right: 2px;
+}
+.template-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 13px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: border-color .12s, color .12s, background .12s;
+}
+.template-pill:hover {
+    border-color: var(--accent);
+    color: var(--text-primary);
+}
+.template-pill.is-active {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+    color: var(--text-primary);
+}
+
+.pill-count {
+    font-size: 11px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: var(--bg-secondary);
+    color: var(--text-muted);
+}
+.template-pill.is-clear { opacity: 0.75; }

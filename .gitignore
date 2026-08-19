@@ -21,7 +21,7 @@ secrets.*
 
 # --- Data ---------------------------------------------------------------
 # Vendor-uploaded bid documents: real company data, not source.
-backend/uploads/ 
+backend/uploads/
 
 # Local databases and dumps — these carry live rows, including password hashes.
 *.sqlite
@@ -60,9 +60,12 @@ Thumbs.db
 logs/
 
 
-# --- other ---------------------------------------------------------------
+# --- Local-only ---------------------------------------------------------
+# Throwaway invite links pasted out of the log during testing.
 links.txt
+# Cached login tokens written by the manual test scripts.
 tokens.json
-dev_accounts.py
-config.py
+# Seeds one account per desk, all sharing one hardcoded password.
+backend/dev_accounts.py
+# Editor/agent state, not source.
 .claude/

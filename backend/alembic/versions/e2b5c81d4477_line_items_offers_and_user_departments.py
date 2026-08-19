@@ -1,27 +1,3 @@
-"""tender/template line items, offers under a bid, and users in departments
-
-Three structural changes, together because they only make sense together:
-
-* `tender_items` / `template_items` — a tender is a TABLE of items now, not a
-  paragraph. Item, specs, notes, quantity, unit; one row each.
-* `offers` / `offer_items` — a bid is an envelope holding one or more priced
-  offers. One offer is accepted, never the whole submission, because a vendor
-  may propose three options and only one gets bought and delivered.
-* `users.department_id` — with `role = manager` this reads "manager of this
-  department", which is how the approval chain is addressed. The purchasing
-  manager is the manager of the Purchasing department; adding another one is
-  adding a user row, not a role.
-
-Backfill: every existing submission gets one offer carrying its flat
-`total_amount` and `notes`. Without it the manager's view — which reads
-`offers` and nothing else — would show an empty list for every tender already
-in the database.
-
-Revision ID: e2b5c81d4477
-Revises: d7a1f0c93b52
-Create Date: 2026-08-17
-
-"""
 from typing import Sequence, Union
 
 import sqlalchemy as sa
@@ -32,13 +8,10 @@ down_revision: Union[str, None] = 'd7a1f0c93b52'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-# The Python enum is mapped without an explicit name=, so SQLAlchemy derives
-# `offerstatus`. Created here for the first time, hence no create_type=False.
 offer_status = sa.Enum("pending", "selected", "rejected", name="offerstatus")
 
 
 def _line_item_columns() -> list[sa.Column]:
-    """The columns shared by tender_items and template_items."""
     return [
         sa.Column("position", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("name", sa.String(length=255), nullable=False),
@@ -74,9 +47,6 @@ def upgrade() -> None:
         "offers",
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("submission_id", sa.Uuid(), nullable=False),
-        # Denormalised from the submission so "all offers on tender X, cheapest
-        # first" needs no join. A submission never changes tender, so there is
-        # nothing here to drift.
         sa.Column("tender_id", sa.Uuid(), nullable=False),
         sa.Column("position", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("title", sa.String(length=255), nullable=True),
@@ -96,8 +66,6 @@ def upgrade() -> None:
         "offer_items",
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("offer_id", sa.Uuid(), nullable=False),
-        # Nullable: a line that answers no particular tender item is exactly the
-        # replacement case this table exists to carry.
         sa.Column("tender_item_id", sa.Uuid(), nullable=True),
         sa.Column("is_replacement", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column("position", sa.Integer(), nullable=False, server_default="0"),
@@ -125,9 +93,6 @@ def upgrade() -> None:
         "fk_users_department", "users", "departments", ["department_id"], ["id"], ondelete="SET NULL"
     )
 
-    # One offer per existing submission, so nothing already in the database
-    # disappears from the manager's view. gen_random_uuid() is pgcrypto, in
-    # core Postgres since 13.
     op.execute(
         """
         INSERT INTO offers (id, submission_id, tender_id, position, title,
@@ -137,7 +102,6 @@ def upgrade() -> None:
         FROM submissions s
         """
     )
-    # Submissions procurement already threw out stay thrown out.
     op.execute(
         """
         UPDATE offers o SET status = 'rejected'
@@ -145,8 +109,6 @@ def upgrade() -> None:
         WHERE s.id = o.submission_id AND s.status = 'rejected'
         """
     )
-    # An award already made keeps pointing at something: the backfilled offer of
-    # the winning submission.
     op.execute(
         """
         UPDATE tenders t SET awarded_offer_id = o.id

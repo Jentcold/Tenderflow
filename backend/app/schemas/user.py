@@ -15,9 +15,6 @@ class UserOut(BaseModel):
     name: str
     role: UserRole
     status: UserStatus
-    # With role=manager this reads "manager of this department", which is how
-    # the approval chain is addressed — the purchasing manager is the manager
-    # of the Purchasing department, not a role of their own.
     department_id: uuid.UUID | None = None
     created_at: datetime
 

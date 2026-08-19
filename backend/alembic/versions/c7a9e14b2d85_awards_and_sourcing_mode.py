@@ -1,20 +1,3 @@
-"""the basket: per-item awards across vendors, and the by-hand path
-
-`awards` + `award_lines`, and `tenders.sourcing_mode`.
-
-The unit of an award becomes the LINE. A tender asking for a mobile, a laptop,
-a tablet and a mouse can now be bought from three different vendors and a shop
-on the corner, which the old "approve one whole offer" model made impossible.
-
-`sourcingmode` and `awardstatus` are new enum types, created here rather than
-left to autogenerate — alembic does not diff enum values, and a type the model
-references but the database lacks fails at runtime, not at migration time.
-
-Revision ID: c7a9e14b2d85
-Revises: b5f8c24a7e13
-Create Date: 2026-08-17
-
-"""
 from typing import Sequence, Union
 
 import sqlalchemy as sa
