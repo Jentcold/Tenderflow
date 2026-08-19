@@ -36,5 +36,15 @@ class Submission(Base, UUIDPKMixin):
     total_amount: Mapped[float] = mapped_column(Numeric(14, 2))
     notes: Mapped[str | None] = mapped_column(Text)
     files: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # The documents the tender *asked* for, keyed by the label purchasing wrote
+    # on `tenders.required_docs`: {"Tax card": "2026/uuid-tax-card.pdf"}.
+    #
+    # Kept apart from `files` rather than merged into it, because the question
+    # purchasing asks about these is not "what did they attach" but "did they
+    # send the tax card". A flat list answers the first and not the second: a
+    # stored filename is whatever the vendor happened to call the file, and
+    # matching it back to a requirement by name is guesswork. `files` stays
+    # what it was - anything else the vendor wanted to include.
+    documents: Mapped[dict[str, str]] = mapped_column(JSON, default=dict)
     status: Mapped[SubmissionStatus] = mapped_column(default=SubmissionStatus.pending)
     submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

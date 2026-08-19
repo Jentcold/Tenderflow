@@ -13,19 +13,35 @@ from sqlalchemy import select
 from app.config import settings
 from app.core.security import hash_password
 from app.database import AsyncSessionLocal
-from app.models.department import Department
+from app.models.department import (
+    PURCHASING_CODE,
+    SUPPLY_CHAIN_CODE,
+    WAREHOUSE_CODE,
+    Department,
+)
+from app.models.category import DEFAULT_CATEGORIES, Category
 from app.models.email import EmailTemplate, EmailType
 from app.models.user import User, UserRole, UserStatus
 
-DEPARTMENTS = [
-    "IT Department",
-    "Human Resources",
-    "Operations",
-    "Marketing",
-    "Facilities Management",
-    "Finance Department",
-    "Legal & Compliance",
-    "Administration",
+# Purchasing, Supply Chain and Warehouse are departments like any other. That
+# is deliberate: the "purchasing manager" in the approval chain is just the
+# manager OF the Purchasing department — a user with role=manager and
+# department_id pointing here. Adding a second purchasing manager is adding a
+# second user row, with no new role, no enum label and no migration.
+DEPARTMENTS: list[tuple[str, str | None]] = [
+    ("IT Department", None),
+    ("Human Resources", None),
+    ("Operations", None),
+    ("Marketing", None),
+    ("Facilities Management", None),
+    ("Finance Department", None),
+    ("Legal & Compliance", None),
+    ("Administration", None),
+    # The three the workflow names. The code is what the code looks them up by,
+    # so these display names can be changed without breaking the approval chain.
+    ("Purchasing", PURCHASING_CODE),
+    ("Supply Chain", SUPPLY_CHAIN_CODE),
+    ("Warehouse", WAREHOUSE_CODE),
 ]
 
 DEFAULT_TEMPLATES = {
@@ -35,10 +51,27 @@ DEFAULT_TEMPLATES = {
             "Dear {vendor_contact},\n\n"
             "Congratulations! Your company, {vendor_company}, has been selected as the "
             "winning bidder for {tender_name} ({tender_serial}).\n\n"
-            "Awarded Amount: {currency} {awarded_amount}\n"
-            "Your Score: {combined_score}/10\n\n"
-            "Our procurement team will contact you shortly regarding next steps.\n\n"
+            "Awarded Amount: {currency} {awarded_amount}\n\n"
+            "Our purchasing team will contact you shortly regarding next steps.\n\n"
             "Best regards,\nTenderFlow Procurement Team"
+        ),
+    },
+    # A basket award: this vendor won SOME of the tender. Deliberately never
+    # says "you have won the tender" — a basket can take two lines from them
+    # and three from somebody else, and the winner template would have them
+    # delivering the whole order.
+    EmailType.basket_award: {
+        "subject": "You have been awarded part of {tender_serial}",
+        "body": (
+            "Dear {vendor_contact},\n\n"
+            "Your company, {vendor_company}, has been awarded the following items "
+            "from {tender_name} ({tender_serial}):\n\n"
+            "{awarded_lines}\n\n"
+            "Total awarded to you: {currency} {awarded_line_total}\n\n"
+            "Please note this tender was awarded across more than one supplier, so "
+            "the items listed above are the full extent of your order. Our purchasing "
+            "team will confirm delivery arrangements shortly.\n\n"
+            "Best regards,\nTenderFlow Purchasing Team"
         ),
     },
     EmailType.loser: {
@@ -46,11 +79,11 @@ DEFAULT_TEMPLATES = {
         "body": (
             "Dear {vendor_contact},\n\n"
             "Thank you for submitting your proposal for {tender_name} ({tender_serial}).\n\n"
-            "After careful evaluation, we regret to inform you that your bid was not "
+            "After careful review, we regret to inform you that your bid was not "
             "selected. The contract has been awarded to another vendor.\n\n"
-            "Your Bid: {currency} {bid_amount}\nYour Score: {combined_score}/10\n\n"
+            "Your Bid: {currency} {bid_amount}\n\n"
             "We encourage you to participate in our future tenders.\n\n"
-            "Best regards,\nTenderFlow Procurement Team"
+            "Best regards,\nTenderFlow Purchasing Team"
         ),
     },
     EmailType.award_revoked: {
@@ -72,10 +105,23 @@ DEFAULT_TEMPLATES = {
 
 async def seed() -> None:
     async with AsyncSessionLocal() as db:
-        for name in DEPARTMENTS:
+        # The category list starts as the four labels the old enum held, so a
+        # fresh database reads the same as an upgraded one. The admin grows it
+        # from there - that is the whole point of it being a table.
+        for position, (slug, name) in enumerate(DEFAULT_CATEGORIES):
+            existing_category = await db.scalar(select(Category).where(Category.slug == slug))
+            if not existing_category:
+                db.add(Category(name=name, slug=slug, position=position, active=True))
+
+        for name, code in DEPARTMENTS:
             existing = await db.scalar(select(Department).where(Department.name == name))
             if not existing:
-                db.add(Department(name=name))
+                db.add(Department(name=name, code=code))
+            elif code and existing.code != code:
+                # Re-run over a database seeded before codes existed: fill the
+                # code in rather than skipping the row, or the approval chain
+                # has no way to find Purchasing.
+                existing.code = code
 
         admin = await db.scalar(select(User).where(User.username == settings.SEED_ADMIN_USERNAME))
         if not admin:

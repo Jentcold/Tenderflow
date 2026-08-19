@@ -15,6 +15,10 @@ class UserOut(BaseModel):
     name: str
     role: UserRole
     status: UserStatus
+    # With role=manager this reads "manager of this department", which is how
+    # the approval chain is addressed — the purchasing manager is the manager
+    # of the Purchasing department, not a role of their own.
+    department_id: uuid.UUID | None = None
     created_at: datetime
 
 
@@ -25,6 +29,7 @@ class UserCreate(BaseModel):
     password: str
     role: UserRole
     status: UserStatus = UserStatus.active
+    department_id: uuid.UUID | None = None
 
     @field_validator("username")
     @classmethod
@@ -46,3 +51,4 @@ class UserUpdate(BaseModel):
     password: str | None = None
     role: UserRole | None = None
     status: UserStatus | None = None
+    department_id: uuid.UUID | None = None

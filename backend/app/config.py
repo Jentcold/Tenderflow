@@ -13,11 +13,20 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 720
 
     CORS_ORIGINS: str = "*"
-    FRONTEND_BASE_URL: str = "http://localhost:5500"
+    # Where the browser-facing pages live, used to build the links mailed to
+    # vendors. Empty means "whatever host this request came in on", which is
+    # what lets a tunnel work without editing config - see core/links.py for
+    # the trade-off that makes. Set it explicitly for anything long-lived.
+    FRONTEND_BASE_URL: str = ""
 
     # IANA name (e.g. "Africa/Cairo") for every timestamp and deadline the app
     # produces. Empty means the server's own local zone. See core/time.py.
     SERVER_TIMEZONE: str = ""
+
+    # What a new request is priced in until purchasing says otherwise. The
+    # requester isn't asked — see schemas/tender.py — so the tender needs a
+    # currency from somewhere, and one house default beats a guess per form.
+    DEFAULT_CURRENCY: str = "EGP"
 
     SEED_ADMIN_USERNAME: str = "admin"
     SEED_ADMIN_EMAIL: str = "admin@tenderflow.com"

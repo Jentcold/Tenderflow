@@ -6,7 +6,14 @@
     <title>TenderFlow - Procurement Management System</title>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
-    <link href="style.css" rel="stylesheet">
+    <!-- ?v= is a cache-buster, and it is load-bearing. There is no build step
+         here, so the browser caches script.js and style.css by filename alone.
+         index.html changes on every edit and is re-fetched; the other two are
+         served from cache, which leaves new HTML being driven by old JS - the
+         form the JS is reaching for is gone, and every button on it dies with
+         "Cannot set properties of null". BUMP THIS ON EVERY EDIT to either
+         file. -->
+    <link href="style.css?v=20260820a" rel="stylesheet">
 </head>
 <body>
     <div class="toast-container" id="toastContainer"></div>
@@ -35,10 +42,8 @@
                     Sign In
                 </button>
             </form>
-            <div class="login-alt">
-                <span>Supplying to us?</span>
-                <button type="button" class="link-button" onclick="openVendorRegisterModal()">Register as a vendor</button>
-            </div>
+            <!-- No vendor registration: vendors do not have accounts. They reach a
+                 tender through a per-vendor link the purchasing team sends. -->
         </div>
     </div>
 
@@ -60,8 +65,8 @@
                         <div class="user-name" id="userName">Admin User</div>
                         <div class="user-role" id="userRoleDisplay">System Admin</div>
                     </div>
-                    <button class="action-btn" onclick="logout()" title="Logout">
-                        <i class="fas fa-sign-out-alt"></i>
+                    <button class="action-btn" onclick="logout()" title="Logout" aria-label="Logout">
+                        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
                     </button>
                 </div>
             </div>
@@ -70,19 +75,21 @@
         <main class="main-content">
             <header class="topbar">
                 <div class="topbar-left">
-                    <button class="menu-toggle" id="menuToggle"><i class="fas fa-bars"></i></button>
+                    <button class="menu-toggle" id="menuToggle" title="Menu" aria-label="Menu">
+                        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+                    </button>
                     <h1 class="page-title" id="pageTitle">Dashboard</h1>
                 </div>
                 <div class="topbar-right">
                     <div class="notification-wrapper">
-                        <button class="topbar-btn" title="Notifications" onclick="toggleNotificationDropdown()" id="notificationBtn">
-                            <i class="fas fa-bell"></i>
+                        <button class="topbar-btn" title="Notifications" aria-label="Notifications" onclick="toggleNotificationDropdown()" id="notificationBtn">
+                            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
                             <span class="notification-badge" id="notificationBadge"></span>
                         </button>
                         <div class="notification-dropdown" id="notificationDropdown"></div>
                     </div>
-                    <button class="topbar-btn" onclick="logout()" title="Logout">
-                        <i class="fas fa-sign-out-alt"></i>
+                    <button class="topbar-btn" onclick="logout()" title="Logout" aria-label="Logout">
+                        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
                     </button>
                 </div>
             </header>
@@ -90,12 +97,10 @@
         </main>
     </div>
 
-    <!-- Vendor Submission Page -->
-    <div class="vendor-container hidden" id="vendorPage"></div>
 
     <!-- Create Tender Modal -->
     <div class="modal-overlay" id="createTenderModal">
-        <div class="modal">
+        <div class="modal modal-wide">
             <div class="modal-header">
                 <h2 class="modal-title" id="tenderModalTitle">Create New Tender</h2>
                 <button class="modal-close" onclick="closeModal('createTenderModal')"><i class="fas fa-times"></i></button>
@@ -103,89 +108,53 @@
             <div class="modal-body">
                 <form id="createTenderForm">
                     <input type="hidden" id="editTenderId">
-                    <div class="form-group full-width">
-                        <label>Tender Name *</label>
-                        <input type="text" class="form-control" id="tenderName" required placeholder="Enter tender name">
-                    </div>
-                    <div class="form-group full-width">
-                        <label>Description *</label>
-                        <textarea class="form-control" id="tenderDescription" required placeholder="Enter detailed description"></textarea>
-                    </div>
                     <div class="form-row">
                         <div class="form-group">
-                            <label>Deadline Date *</label>
-                            <input type="date" class="form-control" id="tenderDeadline" required>
-                        </div>
-                        <div class="form-group">
-                            <label>Deadline Time *</label>
-                            <input type="time" class="form-control" id="tenderDeadlineTime" required>
-                        </div>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>Currency *</label>
-                            <select class="form-control" id="tenderCurrency" required>
-                                <option value="USD">USD - US Dollar</option>
-                                <option value="EUR">EUR - Euro</option>
-                                <option value="GBP">GBP - British Pound</option>
-                                <option value="SAR">SAR - Saudi Riyal</option>
-                                <option value="AED">AED - UAE Dirham</option>
-                                <option value="EGP">EGP - Egyptian Pound</option>
-                                <option value="KWD">KWD - Kuwaiti Dinar</option>
-                                <option value="QAR">QAR - Qatari Riyal</option>
-                                <option value="BHD">BHD - Bahraini Dinar</option>
-                                <option value="OMR">OMR - Omani Rial</option>
-                            </select>
+                            <label>Tender Name *</label>
+                            <input type="text" class="form-control" id="tenderName" required placeholder="Enter tender name">
                         </div>
                         <div class="form-group">
                             <label>Category</label>
-                            <select class="form-control" id="tenderCategory">
-                                <option value="goods">Goods</option>
-                                <option value="services">Services</option>
-                                <option value="works">Works</option>
-                                <option value="consulting">Consulting</option>
-                            </select>
+                            <!-- Filled from the admin's category list at open time
+                                 (see openCreateTenderModal). Hardcoding four options
+                                 here was the enum's shape leaking into the markup. -->
+                            <select class="form-control" id="tenderCategory"></select>
+                        </div>
+                        <!-- Not a field. The department comes from the account
+                             of whoever is filling this in, so it is shown to
+                             confirm where the request will go, not offered as
+                             a choice. -->
+                        <div class="form-group">
+                            <label>Requesting Department</label>
+                            <div class="form-static" id="tenderDepartmentLabel">-</div>
+                            <small class="form-hint">Taken from your account</small>
                         </div>
                     </div>
+
                     <div class="form-group full-width">
-                        <label>Requesting Department *</label>
-                        <select class="form-control" id="tenderDepartment" required>
-                            <option value="">Select Department</option>
-                        </select>
-                        <small style="color: var(--text-muted); font-size: 12px;">The department requesting this tender</small>
-                    </div>
-                    <div class="form-group full-width">
-                        <label>Required Documents</label>
-                        <input type="text" class="form-control" id="requiredDocs" placeholder="e.g., Company Profile, Financial Statement">
-                        <small style="color: var(--text-muted); font-size: 12px;">Separate with commas</small>
-                    </div>
-                    <div class="form-group full-width">
-                        <label>Scoring Criteria</label>
-                        <div id="scoringCriteria" class="criteria-list">
-                            <div class="criteria-item">
-                                <input type="text" class="form-control" placeholder="Criteria name" value="Price">
-                                <input type="number" class="form-control criteria-weight" placeholder="%" value="40" min="0" max="100">
-                                <button type="button" class="action-btn danger" onclick="removeCriteria(this)"><i class="fas fa-trash"></i></button>
-                            </div>
-                            <div class="criteria-item">
-                                <input type="text" class="form-control" placeholder="Criteria name" value="Technical">
-                                <input type="number" class="form-control criteria-weight" placeholder="%" value="30" min="0" max="100">
-                                <button type="button" class="action-btn danger" onclick="removeCriteria(this)"><i class="fas fa-trash"></i></button>
-                            </div>
-                            <div class="criteria-item">
-                                <input type="text" class="form-control" placeholder="Criteria name" value="Delivery">
-                                <input type="number" class="form-control criteria-weight" placeholder="%" value="20" min="0" max="100">
-                                <button type="button" class="action-btn danger" onclick="removeCriteria(this)"><i class="fas fa-trash"></i></button>
-                            </div>
-                            <div class="criteria-item">
-                                <input type="text" class="form-control" placeholder="Criteria name" value="Compliance">
-                                <input type="number" class="form-control criteria-weight" placeholder="%" value="10" min="0" max="100">
-                                <button type="button" class="action-btn danger" onclick="removeCriteria(this)"><i class="fas fa-trash"></i></button>
-                            </div>
+                        <label>What do you need? *</label>
+                        <div class="items-table-wrap">
+                            <table class="items-table" id="tenderItemsTable">
+                                <thead>
+                                    <tr>
+                                        <th class="col-num">#</th>
+                                        <th>Item *</th>
+                                        <th>Specifications</th>
+                                        <th class="col-qty">QTY *</th>
+                                        <th class="col-unit">Unit</th>
+                                        <th>Notes</th>
+                                        <th class="col-act"></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="tenderItemsBody"></tbody>
+                            </table>
                         </div>
-                        <button type="button" class="btn btn-secondary btn-sm" style="margin-top: 12px;" onclick="addCriteria()">
-                            <i class="fas fa-plus"></i> Add Criteria
-                        </button>
+                        <div class="items-action-bar">
+                            <button type="button" class="btn btn-sm btn-secondary" onclick="addItemRow()">
+                                <i class="fas fa-plus"></i> Add Row
+                            </button>
+                            <small class="form-hint">One row per thing you need. Purchasing sets the currency and any documents vendors must send; your manager sets the deadline.</small>
+                        </div>
                     </div>
                 </form>
             </div>
@@ -270,81 +239,59 @@
         </div>
     </div>
 
-    <!-- Vendor Registration Modal (public) -->
-    <div class="modal-overlay" id="vendorRegisterModal">
-        <div class="modal" style="max-width: 620px;">
+
+    <!-- Basket source picker -->
+    <!-- Replaces a <select> per basket row. With several vendors bidding, the
+         dropdown was a list of near-identical strings; grouped by supplier in a
+         modal it answers the question purchasing actually asks. -->
+    <div class="modal-overlay" id="basketPickModal">
+        <div class="modal" style="max-width: 760px;">
             <div class="modal-header">
-                <h2 class="modal-title">Register as a Vendor</h2>
-                <button class="modal-close" onclick="closeModal('vendorRegisterModal')"><i class="fas fa-times"></i></button>
+                <h2 class="modal-title" id="basketPickTitle">Choose a source</h2>
+                <button class="modal-close" onclick="closeModal('basketPickModal')"><i class="fas fa-times"></i></button>
             </div>
-            <div class="modal-body">
-                <form id="vendorRegisterForm">
-                    <p style="color: var(--text-secondary); margin-bottom: 20px;">
-                        One sign-up creates your login and your company profile. Your category decides which tenders you can see and bid on.
-                    </p>
+            <div class="modal-body" id="basketPickContent"></div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('basketPickModal')">Cancel</button>
+            </div>
+        </div>
+    </div>
 
-                    <h3 style="font-size: 14px; text-transform: uppercase; color: var(--text-muted); margin-bottom: 12px;">Company</h3>
-                    <div class="form-group">
-                        <label>Company Name *</label>
-                        <input type="text" class="form-control" id="regCompanyName" required placeholder="Acme Supplies Ltd">
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>Category *</label>
-                            <select class="form-control" id="regCategory" required>
-                                <option value="goods">Goods</option>
-                                <option value="services">Services</option>
-                                <option value="works">Works</option>
-                                <option value="consulting">Consulting</option>
-                            </select>
-                        </div>
-                        <div class="form-group">
-                            <label>Tax ID *</label>
-                            <input type="text" class="form-control" id="regTaxId" required placeholder="Registration or tax number">
-                        </div>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>Contact Email *</label>
-                            <input type="email" class="form-control" id="regContactEmail" required placeholder="bids@acme.com">
-                        </div>
-                        <div class="form-group">
-                            <label>Contact Phone *</label>
-                            <input type="tel" class="form-control" id="regPhone" required placeholder="+20 100 000 0000">
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label>Address *</label>
-                        <input type="text" class="form-control" id="regAddress" required placeholder="Street, city, country">
-                    </div>
+    <!-- Receive Delivery Modal (warehouse) -->
+    <!-- Wide, because the check-in sheet is also the thing that gets printed and
+         marked up by hand at the door. `receive-modal` is what the print rules
+         in style.css key off to drop everything else on the page. -->
+    <div class="modal-overlay" id="receiveModal">
+        <div class="modal receive-modal" style="max-width: 1100px;">
+            <div class="modal-header no-print">
+                <h2 class="modal-title" id="receiveModalTitle">Receive</h2>
+                <button class="modal-close" onclick="closeModal('receiveModal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body" id="receiveContent"></div>
+            <div class="modal-footer no-print">
+                <button class="btn btn-secondary" onclick="closeModal('receiveModal')">Cancel</button>
+                <button class="btn btn-secondary" onclick="printReceivingSheet()">
+                    <i class="fas fa-print"></i> Print sheet</button>
+                <button class="btn btn-accent" onclick="submitReceipt()">
+                    <i class="fas fa-clipboard-check"></i> Check delivery in</button>
+            </div>
+        </div>
+    </div>
 
-                    <h3 style="font-size: 14px; text-transform: uppercase; color: var(--text-muted); margin: 24px 0 12px;">Your Login</h3>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>Your Name *</label>
-                            <input type="text" class="form-control" id="regContactName" required placeholder="Person signing in" autocomplete="name">
-                        </div>
-                        <div class="form-group">
-                            <label>Username *</label>
-                            <input type="text" class="form-control" id="regUsername" required placeholder="acme" autocomplete="username">
-                        </div>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>Account Email *</label>
-                            <input type="email" class="form-control" id="regEmail" required placeholder="you@acme.com" autocomplete="email">
-                        </div>
-                        <div class="form-group">
-                            <label>Password *</label>
-                            <input type="password" class="form-control" id="regPassword" required minlength="6" placeholder="At least 6 characters" autocomplete="new-password">
-                        </div>
-                    </div>
-
-                    <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px;">
-                        <button type="button" class="btn btn-secondary" onclick="closeModal('vendorRegisterModal')">Cancel</button>
-                        <button type="submit" class="btn btn-accent" id="vendorRegisterSubmitBtn"><i class="fas fa-user-plus"></i> Create Account</button>
-                    </div>
-                </form>
+    <!-- One tender's bids -->
+    <!-- Wide and tall, but deliberately not full screen: it sits over the list
+         of tenders it was opened from, and seeing the edge of that list is what
+         tells you this is a look at one row rather than a page you navigated
+         to. The table inside scrolls; the dialog itself doesn't grow. -->
+    <div class="modal-overlay" id="tenderSubmissionsModal">
+        <div class="modal modal-xl">
+            <div class="modal-header">
+                <h2 class="modal-title" id="tenderSubmissionsTitle">Bids</h2>
+                <button class="modal-close" onclick="closeModal('tenderSubmissionsModal')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body" id="tenderSubmissionsContent"></div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('tenderSubmissionsModal')">Close</button>
             </div>
         </div>
     </div>
@@ -440,6 +387,6 @@
         </div>
     </div>
 
-    <script src="script.js"></script>
+    <script src="script.js?v=20260820a"></script>
 </body>
 </html>

@@ -14,9 +14,15 @@ class NotificationType(str, enum.Enum):
     manager_approved = "manager_approved"                # -> procurement, the tender is now open
     changes_requested = "changes_requested"              # -> procurement, manager sent it back
     submission_received = "submission_received"
-    evaluation_submitted = "evaluation_submitted"        # -> supply chain, scoring is done
+    # Renamed from `evaluation_submitted` when scoring was removed. It now means
+    # "an offer moved a step along the approval chain" and is addressed at
+    # whichever desk is next, which is what it had come to mean anyway.
+    offer_selected = "offer_selected"
     sc_rejected = "sc_rejected"
     tender_awarded = "tender_awarded"
+    # -> supply chain and purchasing, the warehouse has checked a delivery in.
+    # Raised whether or not anything was wrong; the message says which.
+    goods_received = "goods_received"
 
 
 class Notification(Base, UUIDPKMixin, TimestampMixin):

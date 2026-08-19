@@ -400,6 +400,12 @@ tr:hover td { background: rgba(59, 125, 221, 0.04); }
     overflow-y: auto;
     animation: scaleIn 0.25s ease-out;
 }
+
+/* For a modal whose content is a table rather than a column of fields. 600px
+   forces the requirement table into its own horizontal scrollbar, which means
+   you can't see the notes column and the item name at the same time - and
+   those are exactly the two you're filling in together. */
+.modal.modal-wide { max-width: 1000px; }
 .modal-header { padding: 20px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
 .modal-title { font-size: 18px; font-weight: 600; }
 .modal-close { background: none; border: none; font-size: 20px; color: var(--text-secondary); cursor: pointer; padding: 4px; }
@@ -478,10 +484,6 @@ textarea.form-control { min-height: 100px; resize: vertical; }
 }
 .request-feedback i { color: var(--warning); margin-top: 2px; }
 
-.criteria-list { display: flex; flex-direction: column; gap: 12px; }
-.criteria-item { display: flex; align-items: center; gap: 12px; padding: 12px; background: var(--bg-tertiary); border-radius: var(--radius); }
-.criteria-item input { flex: 1; }
-.criteria-weight { width: 80px; }
 
 .tabs { display: flex; border-bottom: 2px solid var(--border); margin-bottom: 24px; flex-wrap: wrap; }
 .tab {
@@ -568,61 +570,6 @@ textarea.form-control { min-height: 100px; resize: vertical; }
     background: rgba(59, 125, 221, 0.06);
 }
 
-/* ============ EVALUATION ============ */
-.eval-card {
-    background: var(--bg-secondary);
-    border: 1.5px solid var(--border);
-    border-radius: var(--radius-lg);
-    margin-bottom: 16px;
-    transition: all 0.15s ease;
-    overflow: hidden;
-}
-.eval-card:hover { border-color: var(--accent-dark); }
-.eval-card.rank-1 { border-color: var(--accent); background: linear-gradient(135deg, rgba(59, 125, 221, 0.10) 0%, var(--bg-secondary) 55%); }
-.eval-card.rank-2 { border-color: #7C8CA6; background: linear-gradient(135deg, rgba(124, 140, 166, 0.10) 0%, var(--bg-secondary) 55%); }
-.eval-card.rank-3 { border-color: #4C7FB0; background: linear-gradient(135deg, rgba(76, 127, 176, 0.10) 0%, var(--bg-secondary) 55%); }
-.eval-card-header { padding: 20px; display: flex; justify-content: space-between; align-items: flex-start; cursor: pointer; border-bottom: 1px solid var(--border); }
-.eval-card-body { padding: 20px; display: none; }
-.eval-card.expanded .eval-card-body { display: block; animation: fadeIn 0.3s ease; }
-
-.rank-badge {
-    width: 48px; height: 48px; border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 17px; font-weight: 700; flex-shrink: 0;
-}
-.rank-badge.gold { background: linear-gradient(135deg, var(--accent-light) 0%, var(--accent-dark) 100%); color: #fff; }
-.rank-badge.silver { background: linear-gradient(135deg, #C7D2E0 0%, #7C8CA6 100%); color: var(--ink-dark); }
-.rank-badge.bronze { background: linear-gradient(135deg, #6E9AC4 0%, #35547A 100%); color: #fff; }
-.rank-badge.default { background: var(--bg-tertiary); color: var(--text-secondary); }
-
-.score-slider-container { margin-bottom: 20px; }
-.score-slider-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-.score-slider-header label { font-weight: 500; font-size: 14px; }
-.score-slider-header .weight { color: var(--text-muted); font-size: 12px; font-family: 'IBM Plex Mono', monospace; }
-.score-slider-header .score-value { font-weight: 700; color: var(--accent); font-size: 16px; min-width: 60px; text-align: right; font-family: 'IBM Plex Mono', monospace; }
-.score-slider { width: 100%; height: 6px; -webkit-appearance: none; appearance: none; background: var(--bg-tertiary); border-radius: 4px; outline: none; }
-.score-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 18px; height: 18px; background: var(--accent); border-radius: 50%; cursor: pointer; transition: transform 0.15s; box-shadow: 0 0 0 4px rgba(59, 125, 221, 0.18); }
-.score-slider::-webkit-slider-thumb:hover { transform: scale(1.15); }
-.score-slider::-moz-range-thumb { width: 18px; height: 18px; background: var(--accent); border-radius: 50%; cursor: pointer; border: none; }
-
-.total-score-display {
-    background: linear-gradient(135deg, var(--ink) 0%, var(--ink-light) 100%);
-    border: 1px solid var(--accent-dark);
-    color: var(--text-primary);
-    padding: 16px 24px; border-radius: var(--radius);
-    display: flex; justify-content: space-between; align-items: center;
-    margin-top: 20px;
-}
-.total-score-display .label { font-size: 14px; color: var(--text-secondary); }
-.total-score-display .score { font-size: 32px; font-weight: 700; color: var(--accent-light); font-family: 'IBM Plex Mono', monospace; }
-
-.eval-notes textarea { width: 100%; min-height: 80px; resize: vertical; }
-
-.eval-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
-.eval-summary-item { background: var(--bg-tertiary); padding: 16px; border-radius: var(--radius); text-align: center; }
-.eval-summary-item .value { font-size: 22px; font-weight: 700; color: var(--accent-light); font-family: 'IBM Plex Mono', monospace; }
-.eval-summary-item .label { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
-
 .award-banner {
     background: linear-gradient(135deg, var(--accent-dark) 0%, var(--accent) 100%);
     color: #fff;
@@ -657,3 +604,948 @@ textarea.form-control { min-height: 100px; resize: vertical; }
     .topbar { padding: 16px 20px; }
     .login-box { padding: 32px 24px; }
 }
+
+/* ============================================
+   THE REQUIREMENT TABLE ON THE REQUEST FORM
+   ============================================
+   The request form used to be a paragraph in a textarea. It is a table now:
+   one row per thing the requester needs, which is what goes out to vendors and
+   what the warehouse later ticks off. */
+
+.items-table-wrap {
+    /* The table is wider than the modal on a narrow screen. Scrolling it
+       inside its own box keeps the modal itself from scrolling sideways. */
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-tertiary);
+}
+
+.items-table {
+    width: 100%;
+    /* Below this the columns start truncating their own inputs, so the wrapper
+       scrolls instead. In the wide modal there is room for all of it, so this
+       only bites on a phone. */
+    min-width: 620px;
+    border-collapse: collapse;
+}
+
+.items-table thead th {
+    text-align: left;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    font-weight: 600;
+    padding: 10px 8px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+}
+
+.items-table td {
+    padding: 6px 8px;
+    vertical-align: middle;
+}
+
+.items-table tr + tr td {
+    border-top: 1px solid var(--border);
+}
+
+.items-table .form-control {
+    /* Inputs in a grid read better flush than boxed - the cell is the box. */
+    padding: 7px 9px;
+    font-size: 13px;
+    background: var(--bg-secondary);
+}
+
+.items-table .col-num {
+    width: 34px;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.items-table .col-qty { width: 90px; }
+.items-table .col-unit { width: 80px; }
+.items-table .col-act { width: 40px; text-align: center; }
+
+.btn-icon-danger {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 6px 8px;
+    border-radius: var(--radius);
+    transition: color 0.15s, background 0.15s;
+}
+
+.btn-icon-danger:hover {
+    color: var(--danger);
+    background: rgba(239, 68, 68, 0.12);
+}
+
+.items-action-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 10px;
+}
+
+/* A value the form shows but does not let you change - the requester's own
+   department, which comes from their account. */
+.form-static {
+    padding: 10px 12px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.form-static-warn {
+    color: var(--warning);
+    border-color: var(--warning);
+}
+
+.form-hint {
+    display: block;
+    margin-top: 6px;
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.items-action-bar .form-hint {
+    margin-top: 0;
+    flex: 1;
+    min-width: 200px;
+}
+
+.checkbox-line {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    cursor: pointer;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.checkbox-line input[type="checkbox"] {
+    margin-top: 2px;
+    flex-shrink: 0;
+}
+
+/* ============================================
+   THE REQUEST MODAL
+   ============================================
+   .modal-wide already gives it the room; these rules spend that room on the
+   table rather than on the three short fields above it. */
+
+/* The top row holds name, category and department. The shared .form-row is a
+   two-column grid, so the third field was wrapping onto a line of its own and
+   pushing the table down. */
+#createTenderModal .form-row {
+    grid-template-columns: 2fr 1fr 1fr;
+    align-items: start;
+}
+
+/* full-width spans 2 in the shared grid; the row above is 3 wide here. */
+#createTenderModal .form-group.full-width {
+    grid-column: 1 / -1;
+}
+
+/* Vertical space back, so the whole form clears a laptop screen without
+   scrolling. The table is the part worth seeing; the chrome around it isn't. */
+#createTenderModal .modal-body {
+    padding: 18px 24px;
+}
+
+#createTenderModal .form-group {
+    margin-bottom: 14px;
+}
+
+#createTenderModal .form-row .form-group {
+    margin-bottom: 0;
+}
+
+@media (max-width: 900px) {
+    #createTenderModal .form-row {
+        grid-template-columns: 1fr;
+    }
+    #createTenderModal .form-row .form-group {
+        margin-bottom: 14px;
+    }
+}
+
+/* ============================================
+   THE MANAGER'S REVIEW SCREEN
+   ============================================
+   The pending list used to be one large card per tender, with four facts
+   spread across a grid. It is a table now, and the detail that used to be
+   spread out lives behind one click - including the item rows, which is the
+   part an approver actually needs and the part the card never showed. */
+
+.row-clickable {
+    cursor: pointer;
+}
+
+.row-clickable:hover {
+    background: var(--bg-tertiary);
+}
+
+.serial {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+}
+
+/* Four facts on one line rather than a grid of boxes. */
+.review-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 28px;
+    padding: 14px 16px;
+    background: var(--bg-tertiary);
+    border-radius: var(--radius);
+}
+
+.review-facts p {
+    font-weight: 600;
+    margin-top: 2px;
+}
+
+/* Read-only version of the requirement table: no inputs, so it needs the
+   padding the editable one delegates to its form controls. */
+.items-table-read td {
+    padding: 9px 8px;
+    font-size: 13px;
+}
+
+.items-table-read tbody tr:hover {
+    background: var(--bg-secondary);
+}
+
+.review-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: flex-end;
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border);
+}
+
+/* Approve is the button they reach for most, so it sits where the thumb and
+   the eye both land last. Reject is the destructive one and sits furthest from
+   it, with Send back between them. */
+.review-actions .btn {
+    min-width: 130px;
+    justify-content: center;
+}
+
+.callout {
+    padding: 14px 16px;
+    background: var(--bg-tertiary);
+    border-radius: var(--radius);
+    border-left: 4px solid var(--border);
+}
+
+.callout-danger {
+    border-left-color: var(--danger);
+}
+
+@media (max-width: 640px) {
+    .review-facts { gap: 16px; }
+    .review-actions .btn { flex: 1; min-width: 0; }
+}
+
+/* Inline SVG for the icon-only chrome buttons.
+   These carry no text label, so when the Font Awesome CDN is slow, blocked or
+   simply unreachable the button renders as a blank square that still works -
+   which is exactly what it looked like. An inline SVG has nothing to fetch.
+   `currentColor` keeps them inheriting the hover and theme colours the font
+   icons had. */
+.icon {
+    width: 1em;
+    height: 1em;
+    display: block;
+}
+
+/* ============================================
+   THE OFFERS DESK
+   ============================================
+   One tender at a time, chosen from a picker, and one row per offer. It used
+   to stack a card per tender and a card per offer inside that, so comparing
+   three bids meant scrolling past everything else first. */
+
+.offers-picker {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.offers-picker label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+}
+
+.offers-picker .form-control {
+    flex: 1;
+    min-width: 260px;
+    max-width: 640px;
+}
+
+.offers-table tbody tr.offer-row {
+    cursor: pointer;
+}
+
+.offers-table tbody tr.offer-row:hover {
+    background: var(--bg-tertiary);
+}
+
+/* Shortlisted offers earn a rail rather than another badge in the row. */
+.offers-table tr.is-shortlisted td:first-child {
+    box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.offers-table tr.is-rejected {
+    opacity: 0.55;
+}
+
+.offer-caret {
+    transition: transform 0.15s ease;
+    color: var(--text-muted);
+}
+
+.offer-caret.open {
+    transform: rotate(90deg);
+}
+
+/* The expanded lines sit in the flow of the same table, so they line up under
+   the offer they belong to instead of floating in a panel of their own. */
+.offer-lines > td {
+    background: var(--bg-tertiary);
+    padding: 16px !important;
+}
+
+.offer-actions {
+    white-space: nowrap;
+    text-align: right;
+}
+
+.offer-actions > * {
+    margin-left: 6px;
+    vertical-align: middle;
+}
+
+.offer-actions select.form-control {
+    display: inline-block;
+    width: 74px;
+    padding: 6px 8px;
+    font-size: 13px;
+}
+
+/* --- substitutes are coloured, not captioned ---
+   A substitute is a vendor answering with something other than what was asked
+   for. That is worth seeing at a glance across a whole quotation, which a
+   badge per row buried: the badge repeated the word on every affected line and
+   made the table read as busier than the fact deserved. */
+.row-substitute td {
+    background: rgba(245, 158, 11, 0.13);
+}
+
+.offers-table tr.offer-row .substitute-count,
+.row-substitute td:nth-child(2) {
+    color: var(--warning);
+    font-weight: 600;
+}
+
+.substitute-key {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.substitute-key .swatch {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    background: rgba(245, 158, 11, 0.32);
+    border: 1px solid var(--warning);
+    flex-shrink: 0;
+}
+
+.shortlist-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    border-top: 1px solid var(--border);
+    font-size: 13px;
+    color: var(--text-muted);
+}
+
+
+/* Purchasing's first pass: the tick that sends one offer up to the department
+   manager. Sits in the actions column beside the rank select, and reads as a
+   toggle rather than a form field - it is a decision about one row, not data
+   being entered. */
+.forward-tick {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 9px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--text-muted);
+    cursor: pointer;
+    white-space: nowrap;
+    user-select: none;
+}
+
+.forward-tick:hover { border-color: var(--accent); color: var(--text-primary); }
+
+.forward-tick input {
+    width: 15px;
+    height: 15px;
+    accent-color: var(--accent);
+    cursor: pointer;
+    margin: 0;
+}
+
+/* Already sent up. Coloured so a glance down the column separates what the
+   manager can see from what is still sitting here. */
+.forward-tick:has(input:checked) {
+    border-color: var(--info);
+    color: var(--info);
+}
+
+/* Shortlisted or further along: the manager has acted on it, so the tick can no
+   longer take it back. Rejecting it is the way out, and that asks for a reason. */
+.forward-tick:has(input:disabled) {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.forward-tick:has(input:disabled) input { cursor: not-allowed; }
+
+
+/* ============================================
+   ROLE DASHBOARDS
+   ============================================
+   One wide panel of what is waiting on you, then two narrower ones underneath:
+   a secondary list on the left, your own recent activity on the right. The
+   same shape for every desk, so the app doesn't read as five different apps. */
+
+.dash-panel {
+    margin-bottom: 20px;
+}
+
+.dash-split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    align-items: start;
+}
+
+/* Two columns is a reading convenience, not a layout the content depends on.
+   Below this the panels stack, which is also what a phone gets. */
+@media (max-width: 1100px) {
+    .dash-split {
+        grid-template-columns: 1fr;
+    }
+}
+
+.dash-split .dash-panel {
+    margin-bottom: 0;
+}
+
+/* Urgent earns a rail rather than another badge competing with the one already
+   in the row. */
+.offers-table tr.is-urgent td:first-child {
+    box-shadow: inset 3px 0 0 var(--danger);
+}
+
+.activity-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+
+.activity-list li {
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border);
+}
+
+.activity-list li:last-child {
+    border-bottom: none;
+}
+
+.activity-action {
+    font-weight: 600;
+    font-size: 13px;
+}
+
+.activity-detail {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 2px;
+    /* Audit details carry serials and ids and run long. One line each keeps the
+       panel a scannable list rather than a wall. */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.activity-when {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 4px;
+}
+
+/* ============================================
+   WAREHOUSE: THE CHECK-IN SHEET
+   ============================================ */
+
+.receive-head {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+@media (max-width: 700px) {
+    .receive-head {
+        grid-template-columns: 1fr;
+    }
+}
+
+.receive-head label {
+    font-size: 12px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.receive-head p {
+    margin-top: 2px;
+}
+
+.receive-hint {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-bottom: 14px;
+}
+
+.receive-table th.tick,
+.receive-table td.tick {
+    width: 44px;
+    text-align: center;
+}
+
+.receive-table td.tick input[type="checkbox"] {
+    width: 17px;
+    height: 17px;
+    cursor: pointer;
+    accent-color: var(--success, #158a5a);
+}
+
+/* An unticked line is the whole point of the screen, so it is coloured for the
+   same reason a substitute is on the offers desk: it has to survive a glance
+   down a long table. */
+.receive-table tr.is-flagged td {
+    background: rgba(245, 158, 11, 0.13);
+}
+
+.problem-fields {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+.problem-fields.hidden {
+    display: none;
+}
+
+.problem-fields select.form-control {
+    width: 150px;
+}
+
+.problem-fields input[data-got] {
+    width: 92px;
+}
+
+.problem-fields input[data-note] {
+    width: 200px;
+    flex: 1;
+    min-width: 140px;
+}
+
+/* The blank column that only exists on paper, for marking up by hand. */
+.print-only {
+    display: none;
+}
+
+/* ============================================
+   PRINTING THE CHECK-IN SHEET
+   ============================================
+   The warehouse prints this, walks the pallet with it, marks it up and types
+   the result in afterwards. So the printed page is the item table and the
+   header identifying the delivery — no sidebar, no modal chrome, no buttons,
+   and no form controls, which print as empty boxes and confuse the paper.
+
+   Driven by `printing-receipt` on <body>, set only for the duration of the
+   print dialog, so nothing here affects an ordinary Ctrl+P of another page. */
+@media print {
+    body.printing-receipt .sidebar,
+    body.printing-receipt .topbar,
+    body.printing-receipt .main-content,
+    body.printing-receipt .toast-container,
+    body.printing-receipt .modal-overlay:not(#receiveModal) {
+        display: none !important;
+    }
+
+    body.printing-receipt #receiveModal {
+        position: static;
+        display: block;
+        background: none;
+        padding: 0;
+    }
+
+    body.printing-receipt #receiveModal .modal {
+        max-width: none;
+        width: 100%;
+        box-shadow: none;
+        border: none;
+        max-height: none;
+        overflow: visible;
+    }
+
+    body.printing-receipt .no-print {
+        display: none !important;
+    }
+
+    /* The hand-marking column, which exists only on paper. */
+    body.printing-receipt .print-only {
+        display: table-cell;
+    }
+
+    body.printing-receipt .print-box {
+        min-width: 150px;
+        border-bottom: 1px solid #999;
+    }
+
+    /* Ink, and legibility on paper: the app is dark, a printout is not. */
+    body.printing-receipt,
+    body.printing-receipt #receiveModal .modal,
+    body.printing-receipt #receiveModal table,
+    body.printing-receipt #receiveModal td,
+    body.printing-receipt #receiveModal th {
+        background: #fff !important;
+        color: #000 !important;
+    }
+
+    body.printing-receipt #receiveModal th,
+    body.printing-receipt #receiveModal td {
+        border: 1px solid #999 !important;
+    }
+
+    body.printing-receipt .table-container {
+        overflow: visible !important;
+    }
+
+    /* A pallet's worth of lines runs past one page; keep rows whole. */
+    body.printing-receipt tr {
+        page-break-inside: avoid;
+    }
+}
+
+/* ============================================
+   OFFERS: GROUPED BY SUPPLIER (purchasing only)
+   ============================================
+   A separator row rather than a column, because the vendor repeats down every
+   row of a group and a column would print the same name three times for the
+   same fact. The manager never sees this: their payload carries no vendor at
+   all, which is the point of the blind comparison. */
+.offers-table tr.vendor-group td {
+    background: var(--bg-tertiary);
+    padding: 8px 16px;
+    border-top: 1px solid var(--border);
+}
+
+.offers-table tr.vendor-group:hover td {
+    background: var(--bg-tertiary);
+}
+
+.vendor-name {
+    font-weight: 700;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.vendor-count {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-left: 10px;
+}
+
+/* ============================================
+   HOW AN OFFER DIFFERS FROM WHAT WAS ASKED FOR
+   ============================================
+   Three kinds, three colours, same idea as the substitute highlight: the fact
+   has to survive a glance down a long table.
+
+   Missing is the one that needed inventing. A substitute and an addition are
+   both rows you can see; a line nobody priced is invisible by nature, so the
+   table grows a row for it that exists only to say it isn't there. */
+.row-added td {
+    background: rgba(56, 139, 253, 0.13);
+}
+
+.row-missing td {
+    background: rgba(239, 68, 68, 0.11);
+    color: var(--text-muted);
+}
+
+.offers-table tr.offer-row .added-count,
+.row-added td:nth-child(2) {
+    color: var(--info, #388bfd);
+    font-weight: 600;
+}
+
+.offers-table tr.offer-row .missing-count,
+.row-missing td:nth-child(2) {
+    color: var(--danger);
+    font-weight: 600;
+}
+
+.substitute-key .swatch.added {
+    background: rgba(56, 139, 253, 0.32);
+    border-color: var(--info, #388bfd);
+}
+
+.substitute-key .swatch.missing {
+    background: rgba(239, 68, 68, 0.28);
+    border-color: var(--danger);
+}
+
+/* ============================================
+   BASKET: THE SOURCE PICKER
+   ============================================ */
+.basket-source-btn {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    width: 100%;
+    text-align: left;
+}
+
+.basket-source-label {
+    flex: 1;
+    min-width: 0;
+    font-weight: 400;
+}
+
+.pick-hint {
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-bottom: 16px;
+}
+
+.pick-group {
+    margin-bottom: 18px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+.pick-group-head {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 8px 14px;
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border);
+}
+
+/* One row per quote. A whole row is the click target, not a radio button in
+   the corner of it — this list is read quickly and aimed at roughly. */
+.pick-option {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 12px 14px;
+    cursor: pointer;
+    border-bottom: 1px solid var(--border);
+}
+
+.pick-option:last-child {
+    border-bottom: none;
+}
+
+.pick-option:hover {
+    background: var(--bg-tertiary);
+}
+
+.pick-option.is-chosen {
+    box-shadow: inset 3px 0 0 var(--accent);
+    background: var(--bg-tertiary);
+}
+
+.pick-main {
+    min-width: 0;
+}
+
+.pick-main .badge {
+    margin-left: 6px;
+}
+
+.pick-sub {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 2px;
+}
+
+.pick-price {
+    text-align: right;
+    font-weight: 700;
+    white-space: nowrap;
+    color: var(--accent-light);
+}
+
+.basket-add-cell {
+    text-align: center;
+    white-space: nowrap;
+}
+
+/* ============================================
+   SUBMISSIONS: THE OFFERS INSIDE A BID
+   ============================================
+   Opening a bid shows every offer in it, priced line by line. Each one gets a
+   bordered block so two offers from the same company don't read as one long
+   table. */
+.sub-offer {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 16px;
+    overflow: hidden;
+}
+
+.sub-offer-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 10px 14px;
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border);
+}
+
+.sub-offer-head .badge {
+    margin-left: 6px;
+}
+
+.sub-offer .table-container {
+    border: none;
+}
+
+.sub-offer-key .substitute-key {
+    margin-top: 6px;
+}
+
+/* ------------------------------------------------ the extra-wide dialog */
+/* For a dialog whose job is reading a table across: the bids on one tender,
+   where four companies and eight columns have to be comparable at a glance.
+   Sized off the viewport rather than fixed, and deliberately short of filling
+   it - a sliver of the page underneath is what says "this is one row of that
+   list", not somewhere you navigated to. */
+.modal.modal-xl {
+    max-width: min(1320px, 92vw);
+    width: 92vw;
+}
+.modal.modal-xl .modal-body {
+    max-height: 74vh;
+    overflow-y: auto;
+}
+
+/* A required document that never arrived. Same chip, said plainly - a gap in
+   the list reads as "there were only two", which is the wrong conclusion. */
+.chip-missing {
+    color: var(--danger);
+    border-color: var(--danger);
+    opacity: 0.85;
+}
+
+/* ------------------------------------------- splitting a basket requirement */
+/* One requirement bought from two places is two rows that have to read as one
+   thing. The continuation rows are tinted and un-numbered, and the item name
+   appears once - repeating it would read as two separate requirements. */
+.basket-split-row > td { border-top: none; }
+.basket-split-row {
+    background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+.basket-split-btn {
+    margin-top: 6px;
+    padding: 2px 8px;
+    font-size: 11px;
+}
+/* "3 of 4 allocated". A split that doesn't add up totals correctly and simply
+   buys three of something four people need, so it is called out rather than
+   left to be noticed. */
+.split-tally {
+    font-size: 11px;
+    margin-top: 4px;
+    font-weight: 600;
+}
+.split-tally.is-ok  { color: var(--success); }
+.split-tally.is-off { color: var(--warning); }
+
+/* The picker's search box and the category note under the directory. */
+.pick-search { margin-bottom: 14px; }
+.pick-option.is-empty { cursor: default; }
+.pick-widen {
+    padding: 8px 12px;
+    font-size: 12px;
+    color: var(--text-muted);
+    border-top: 1px dashed var(--border);
+}
+.pick-widen a { color: var(--accent-light); }
+
+/* ------------------------------------------------------ category tick list */
+/* A vendor supplies several things, so the picker is tick boxes rather than a
+   dropdown. A <select multiple> is a control almost nobody knows they may pick
+   more than one from, let alone how to do it with a keyboard. */
+.category-picker {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-tertiary);
+    max-height: 190px;
+    overflow-y: auto;
+}
+.category-tick {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 14px;
+    cursor: pointer;
+    margin: 0;
+    white-space: nowrap;
+}
+.category-tick input { cursor: pointer; }

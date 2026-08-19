@@ -42,7 +42,6 @@ SAMPLE_PLACEHOLDERS = {
     "{currency}": "USD",
     "{awarded_amount}": "45,000",
     "{bid_amount}": "45,000",
-    "{combined_score}": "8.5",
 }
 
 

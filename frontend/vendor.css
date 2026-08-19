@@ -1,0 +1,627 @@
+/* Styling for the vendor's quotation page only.
+   Separate from style.css on purpose: the internal app's stylesheet carries
+   the whole desk UI, and this page is one form seen by people outside the
+   company. Keeping them apart means a change to either can't disturb the
+   other, and a vendor is served only what they need.
+
+   Light-first and deliberately plain. The internal app is dark; a document
+   somebody prints, forwards to a colleague or opens on a phone in a warehouse
+   reads better on white. */
+
+:root {
+    --ink: #16202e;
+    --ink-soft: #55627a;
+    --ink-faint: #8592a8;
+    --line: #dfe4ec;
+    --paper: #ffffff;
+    --wash: #f5f7fa;
+    --brand: #2f5bd8;
+    --brand-dark: #24469f;
+    --good: #158a5a;
+    --warn: #a5680a;
+    --warn-wash: #fdf6e7;
+    --bad: #c2382c;
+    --radius: 8px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    /* System stack: nothing to fetch, so the first paint is the real one. */
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                 "Helvetica Neue", Arial, sans-serif;
+    color: var(--ink);
+    background: var(--wash);
+    line-height: 1.55;
+    font-size: 15px;
+}
+
+/* ---------------------------------------------------------------- chrome */
+
+.masthead {
+    background: var(--paper);
+    border-bottom: 1px solid var(--line);
+}
+
+.masthead-inner,
+main,
+.footer p {
+    max-width: 1040px;
+    margin: 0 auto;
+    padding: 0 20px;
+}
+
+.masthead-inner {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    height: 58px;
+}
+
+.wordmark {
+    font-weight: 700;
+    font-size: 17px;
+    letter-spacing: -0.01em;
+}
+
+.masthead-note {
+    color: var(--ink-faint);
+    font-size: 13px;
+}
+
+main { padding-top: 24px; padding-bottom: 40px; }
+
+.footer p {
+    padding-top: 8px;
+    padding-bottom: 40px;
+    color: var(--ink-faint);
+    font-size: 12.5px;
+}
+
+/* ----------------------------------------------------------------- cards */
+
+.card {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    margin-bottom: 16px;
+    overflow: hidden;
+}
+
+.card-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding: 18px 20px;
+    border-bottom: 1px solid var(--line);
+}
+
+.card-body { padding: 20px; }
+
+h1 { font-size: 21px; letter-spacing: -0.01em; }
+h2 { font-size: 16px; }
+
+.sub { color: var(--ink-faint); font-size: 13px; }
+
+.who {
+    text-align: right;
+    line-height: 1.4;
+}
+
+.who strong { display: block; }
+
+.code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    color: var(--ink-faint);
+}
+
+.lede {
+    color: var(--ink-soft);
+    font-size: 14px;
+}
+
+.notice {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    background: var(--warn-wash);
+    border: 1px solid #f0dfb8;
+    color: var(--warn);
+    border-radius: var(--radius);
+    padding: 11px 14px;
+    font-size: 13px;
+    margin-bottom: 18px;
+}
+
+.notice svg { flex-shrink: 0; margin-top: 2px; }
+
+/* ----------------------------------------------------------------- table */
+
+.table-scroll {
+    overflow-x: auto;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+/* Each table gets the width it actually needs rather than one shared figure.
+   The read-only requirements list is narrow enough to fit most laptops without
+   scrolling; the editor's tables genuinely are wide, and forcing the same
+   minimum on all three put a scrollbar under a five-column table for nothing. */
+.req-table   { min-width: 620px; }
+.pick-table  { min-width: 800px; }
+.extra-table { min-width: 940px; }
+
+thead th {
+    text-align: left;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--ink-faint);
+    font-weight: 600;
+    padding: 10px 12px;
+    background: var(--wash);
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+}
+
+tbody td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--line);
+    vertical-align: middle;
+}
+
+tbody tr:last-child td { border-bottom: none; }
+
+tfoot td {
+    padding: 12px;
+    border-top: 2px solid var(--line);
+    font-weight: 700;
+    background: var(--wash);
+}
+
+.num { width: 34px; color: var(--ink-faint); text-align: center; }
+.want { font-size: 13px; color: var(--ink-soft); }
+.qty { white-space: nowrap; }
+.col-offer { width: 180px; }
+/* How many they can actually supply. Pre-filled with the requested amount, so
+   a vendor who can cover the line leaves it alone. */
+.col-can { width: 120px; }
+.col-price { width: 130px; }
+.col-total { width: 130px; text-align: right; white-space: nowrap; }
+tfoot .col-total { color: var(--brand-dark); }
+
+.line-total { text-align: right; font-weight: 600; }
+.line-total.empty { color: var(--ink-faint); font-weight: 400; }
+
+/* Rows the vendor has actually priced, so a long list shows at a glance what
+   has been filled in and what is still blank. */
+tbody tr.priced { background: #f2f7ff; }
+
+/* ---------------------------------------------------------------- inputs */
+
+label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--ink-soft);
+    margin-bottom: 5px;
+}
+
+input, textarea {
+    width: 100%;
+    font: inherit;
+    font-size: 14px;
+    color: var(--ink);
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 8px 10px;
+}
+
+input:focus, textarea:focus {
+    outline: none;
+    border-color: var(--brand);
+    box-shadow: 0 0 0 3px rgba(47, 91, 216, 0.14);
+}
+
+table input { padding: 6px 8px; font-size: 13.5px; }
+
+textarea { resize: vertical; min-height: 76px; }
+
+.hint { font-size: 12px; color: var(--ink-faint); margin-top: 4px; }
+
+.fields {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+    margin-top: 22px;
+}
+
+.fields .wide { grid-column: 1 / -1; }
+
+.req { color: var(--bad); }
+
+/* --------------------------------------------------------------- actions */
+
+.actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 14px;
+    margin-top: 22px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line);
+}
+
+button {
+    font: inherit;
+    font-weight: 600;
+    font-size: 14px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 10px 20px;
+    cursor: pointer;
+    background: var(--brand);
+    color: #fff;
+}
+
+button:hover { background: var(--brand-dark); }
+
+button[disabled] {
+    background: var(--line);
+    color: var(--ink-faint);
+    cursor: not-allowed;
+}
+
+/* --------------------------------------------------------------- states */
+
+.loading, .state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--ink-soft);
+}
+
+.state h2 { margin-bottom: 6px; color: var(--ink); }
+.state p { max-width: 460px; margin: 0 auto; font-size: 14px; }
+.state svg { margin-bottom: 12px; }
+
+.spinner {
+    width: 26px;
+    height: 26px;
+    margin: 0 auto 12px;
+    border: 2.5px solid var(--line);
+    border-top-color: var(--brand);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* --------------------------------------------------------------- toasts */
+
+.toasts {
+    position: fixed;
+    top: 16px;
+    right: 16px;
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.toast {
+    background: var(--ink);
+    color: #fff;
+    padding: 11px 16px;
+    border-radius: 6px;
+    font-size: 13.5px;
+    max-width: 340px;
+    box-shadow: 0 6px 20px rgba(22, 32, 46, 0.22);
+    animation: slide 0.2s ease-out;
+}
+
+.toast.bad { background: var(--bad); }
+
+@keyframes slide {
+    from { opacity: 0; transform: translateX(16px); }
+    to   { opacity: 1; transform: translateX(0); }
+}
+
+/* --------------------------------------------------------------- narrow */
+
+@media (max-width: 640px) {
+    .fields { grid-template-columns: 1fr; }
+    .card-head { flex-direction: column; }
+    .who { text-align: left; }
+    .actions { flex-direction: column-reverse; align-items: stretch; }
+    .actions button { width: 100%; }
+}
+
+/* Printing happens: a vendor forwards this to whoever signs off the price. */
+@media print {
+    .masthead, .footer, .actions, .toasts { display: none; }
+    body { background: #fff; font-size: 12px; }
+    .card { border-color: #bbb; break-inside: avoid; }
+    table { min-width: 0; }
+}
+
+
+/* ================================================================= offers ==
+   Everything below belongs to the offer builder: the saved-offer list, and the
+   editor that writes one. Added when the vendor form stopped being a single
+   priced table and became "read what's wanted, then compose one or more ways
+   of answering it". */
+
+/* --------------------------------------------------------- the saved list */
+
+.offer-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.offer-row {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 13px 16px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--wash);
+}
+
+.offer-id { flex: 1; min-width: 0; }
+.offer-id strong { display: block; }
+.offer-id .sub { display: block; }
+
+.offer-total {
+    font-weight: 700;
+    color: var(--brand-dark);
+    white-space: nowrap;
+}
+
+.offer-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+/* --------------------------------------------------------------- buttons */
+
+/* Secondary actions. Only one thing on any screen should look like the thing
+   to press, and on this page that is always Save or Send. */
+button.ghost {
+    background: var(--paper);
+    color: var(--ink-soft);
+    border-color: var(--line);
+    padding: 8px 14px;
+}
+
+button.ghost:hover {
+    background: var(--wash);
+    color: var(--ink);
+    border-color: var(--ink-faint);
+}
+
+button.ghost.danger { color: var(--bad); }
+button.ghost.danger:hover {
+    background: #fdf1f0;
+    border-color: var(--bad);
+    color: var(--bad);
+}
+
+/* Icon-only buttons in table rows and the offer list. */
+button.ghost[aria-label] svg { display: block; }
+td.tick button.ghost, .offer-actions button.ghost[aria-label] { padding: 7px 9px; }
+
+button.add {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    margin-top: 12px;
+}
+
+button svg { vertical-align: -2px; }
+
+.card-head button {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    flex-shrink: 0;
+}
+
+/* --------------------------------------------------------------- editor */
+
+h3.section {
+    font-size: 14px;
+    margin-top: 26px;
+    margin-bottom: 4px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line);
+}
+
+h3.section + .lede { margin-bottom: 12px; }
+
+.fields.tight { margin-top: 16px; }
+
+.opt { font-weight: 400; color: var(--ink-faint); }
+
+/* Percentage sign welded to the field, so the unit is impossible to miss and
+   impossible to type into. A deposit read as money when it was meant as a
+   percentage is a five-figure misunderstanding. */
+.suffixed {
+    display: flex;
+    align-items: stretch;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--paper);
+}
+
+.suffixed:focus-within {
+    border-color: var(--brand);
+    box-shadow: 0 0 0 3px rgba(47, 91, 216, 0.14);
+}
+
+.suffixed input {
+    border: none;
+    border-radius: 0;
+    flex: 1;
+    min-width: 0;
+}
+
+.suffixed input:focus { outline: none; box-shadow: none; }
+
+.suffix {
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    background: var(--wash);
+    border-left: 1px solid var(--line);
+    color: var(--ink-faint);
+    font-size: 12.5px;
+    white-space: nowrap;
+}
+
+.offer-running {
+    margin-right: auto;
+    color: var(--ink-soft);
+    font-size: 14px;
+}
+
+.offer-running strong { color: var(--brand-dark); }
+
+/* ------------------------------------------------------- the pick table */
+
+th.tick, td.tick {
+    width: 42px;
+    text-align: center;
+    padding-left: 10px;
+    padding-right: 10px;
+}
+
+td.tick input[type="checkbox"] {
+    width: 17px;
+    height: 17px;
+    accent-color: var(--brand);
+    cursor: pointer;
+}
+
+/* Screen-reader-only column headings: a tick box and a bin need a name for
+   anyone not looking at them, and a visible one would be noise. */
+.sr {
+    position: absolute;
+    width: 1px; height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
+.want.block {
+    display: block;
+    font-size: 12px;
+    margin-top: 2px;
+}
+
+select {
+    width: 100%;
+    font: inherit;
+    font-size: 13.5px;
+    color: var(--ink);
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 6px 8px;
+}
+
+select:focus {
+    outline: none;
+    border-color: var(--brand);
+    box-shadow: 0 0 0 3px rgba(47, 91, 216, 0.14);
+}
+
+.col-replaces { width: 190px; }
+.col-unit { width: 80px; }
+
+/* An unticked row is still readable - it is part of the request - but visibly
+   not part of this offer. */
+tbody tr.off { color: var(--ink-faint); }
+tbody tr.off strong { font-weight: 600; color: var(--ink-soft); }
+tbody tr.off input:disabled {
+    background: var(--wash);
+    color: var(--ink-faint);
+    cursor: not-allowed;
+}
+
+/* More than was ordered. Allowed - a box of ten, a spare thrown in - so this
+   is amber rather than red: a note, not a refusal. It exists so a vendor who
+   meant 3 and typed 30 sees it before they send. */
+tbody tr.over { background: var(--warn-wash); }
+tbody tr.over .col-can input {
+    border-color: #e2c583;
+    background: #fff;
+}
+tbody tr.over .col-can::after {
+    content: "more than asked for";
+    display: block;
+    margin-top: 3px;
+    font-size: 10.5px;
+    line-height: 1.3;
+    color: var(--warn);
+}
+
+/* ---------------------------------------------------------------- narrow */
+
+@media (max-width: 640px) {
+    .offer-row { flex-wrap: wrap; }
+    .offer-id { flex-basis: 100%; }
+    .offer-actions { margin-left: auto; }
+    .card-head button { width: 100%; justify-content: center; }
+    .offer-running { margin-right: 0; text-align: center; }
+}
+
+/* --------------------------------------------------- required documents */
+/* One labelled slot per document the tender asks for. Boxed and set apart
+   from the fields beside it because an unattached document is the one thing
+   here that stops the quotation being sent at all. */
+.doc-slots {
+    margin: 18px 0;
+    padding: 16px 18px;
+    border: 1px solid var(--line, #d8dde5);
+    border-radius: 10px;
+    background: var(--tint, #f7f9fc);
+}
+.doc-slots h3 {
+    margin: 0 0 4px;
+    font-size: 15px;
+    font-weight: 600;
+}
+.doc-slots .hint { margin: 0 0 12px; }
+.doc-slot {
+    display: grid;
+    grid-template-columns: minmax(140px, 220px) 1fr;
+    gap: 12px;
+    align-items: center;
+    padding: 8px 0;
+}
+.doc-slot + .doc-slot { border-top: 1px dashed var(--line, #d8dde5); }
+.doc-slot label {
+    font-weight: 600;
+    font-size: 14px;
+    margin: 0;
+}
+.doc-slot input[type="file"] {
+    font-size: 13px;
+    max-width: 100%;
+}
+@media (max-width: 620px) {
+    .doc-slot { grid-template-columns: 1fr; gap: 4px; }
+}

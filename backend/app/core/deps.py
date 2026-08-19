@@ -60,8 +60,7 @@ def require_roles(*roles: str) -> Callable:
 
 
 # Back-office roles: the people who run the tender process and may therefore
-# see bids, vendors and scores. Deliberately excludes both vendors and
-# employees.
+# see bids and vendors. Deliberately excludes both vendors and employees.
 STAFF_ROLES = ("admin", "procurement", "manager", "supply_chain", "finance")
 require_staff = require_roles(*STAFF_ROLES)
 
@@ -69,6 +68,6 @@ require_staff = require_roles(*STAFF_ROLES)
 # requests. Wider than require_staff, so it gates only the routers an employee
 # genuinely needs: /tenders (where each endpoint re-checks) and /departments
 # (which their request form has to populate). Adding "employee" to STAFF_ROLES
-# instead would have handed them /submissions, /vendors and /evaluations.
+# instead would have handed them /submissions, /vendors and /offers.
 INTERNAL_ROLES = STAFF_ROLES + ("employee",)
 require_internal = require_roles(*INTERNAL_ROLES)

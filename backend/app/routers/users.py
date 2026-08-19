@@ -61,6 +61,7 @@ async def create_user(
         password_hash=hash_password(payload.password),
         role=payload.role,
         status=payload.status,
+        department_id=payload.department_id,
     )
     db.add(user)
     await log_audit(db, "User Created", f"{user.name} ({user.username}) as {user.role.value}", admin.name)
@@ -116,6 +117,11 @@ async def update_user(
         user.role = payload.role
     if payload.status:
         user.status = payload.status
+    # Checked against the model's own value, not truthiness: `None` here has to
+    # be able to mean "detach this person from their department", and a falsy
+    # test would make that the one edit the API can't express.
+    if "department_id" in payload.model_fields_set:
+        user.department_id = payload.department_id
 
     await log_audit(db, "User Updated", f"{user.name} ({user.username})", admin.name)
     await db.commit()

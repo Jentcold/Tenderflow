@@ -35,7 +35,12 @@ class SentEmailOut(BaseModel):
     tender_id: uuid.UUID
     tender_serial: str
     tender_name: str
-    submission_id: uuid.UUID
+    # Null on an RFQ. The invitation goes out before anybody has bid, so
+    # there is no submission for it to point at - the model has allowed
+    # that since RFQ mail was added, and this was the one place still
+    # insisting on a value. Every log read blew up as soon as one RFQ
+    # was in the table.
+    submission_id: uuid.UUID | None
     vendor_company: str
     recipient_email: str
     type: EmailType

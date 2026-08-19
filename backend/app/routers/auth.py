@@ -7,7 +7,7 @@ from app.core.deps import get_current_user
 from app.core.ratelimit import lockout_error, login_ip_limit, login_throttle
 from app.core.security import create_access_token, verify_password
 from app.database import get_db
-from app.models.user import User, UserStatus
+from app.models.user import User, UserRole, UserStatus
 from app.schemas.auth import LoginRequest, TokenResponse
 from app.schemas.user import UserOut
 
@@ -34,6 +34,16 @@ async def login(payload: LoginRequest, db: AsyncSession = Depends(get_db)) -> To
         # used to enumerate which accounts exist.
         await login_throttle.record_failure(identifier)
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid username or password")
+
+    # Vendors don't log in. They are directory records reached through a link
+    # addressed to them, and any `vendor` account still on the table predates
+    # that decision. Refused after the password check, not before, so this
+    # can't be used to find out which accounts are vendors.
+    if user.role == UserRole.vendor:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Vendor accounts don't sign in. Use the tender link sent to your company.",
+        )
 
     await login_throttle.reset(identifier)
     token = create_access_token(subject=str(user.id), role=user.role.value)

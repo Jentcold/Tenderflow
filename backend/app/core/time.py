@@ -58,5 +58,14 @@ def combine_deadline(deadline_date: date, deadline_time: time) -> datetime:
     return naive.astimezone()
 
 
-def is_past_deadline(deadline_date: date, deadline_time: time) -> bool:
+def is_past_deadline(deadline_date: date | None, deadline_time: time | None) -> bool:
+    """Whether a tender's deadline has gone by.
+
+    A tender with no deadline is never past it. That is not a loophole: the
+    deadline is set by the manager who approves the tender, so an unset one
+    means the tender has not opened to vendors yet and there is nothing to be
+    late for.
+    """
+    if deadline_date is None or deadline_time is None:
+        return False
     return server_now() > combine_deadline(deadline_date, deadline_time)
