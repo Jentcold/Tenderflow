@@ -21,7 +21,7 @@ secrets.*
 
 # --- Data ---------------------------------------------------------------
 # Vendor-uploaded bid documents: real company data, not source.
-backend/uploads/
+backend/uploads/ 
 
 # Local databases and dumps — these carry live rows, including password hashes.
 *.sqlite
@@ -58,3 +58,11 @@ Thumbs.db
 # --- Logs ---------------------------------------------------------------
 *.log
 logs/
+
+
+# --- other ---------------------------------------------------------------
+links.txt
+tokens.json
+dev_accounts.py
+config.py
+.claude/

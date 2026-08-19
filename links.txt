@@ -1,4 +1,0 @@
-http://localhost:5000/index.html?invite=2A_PWwOsN5Gr5713CBQVDxFHYU1GNur7dPdeoEU5Igc
-http://localhost:5000/index.html?invite=ZE0xiGspElp6-_pnvgbrkXM_VV2uQzs0PBn3xEUY_28
-http://localhost:5000/index.html?invite=7J5wO8s0Jdj1Ybx1mlpLYbcQRz6i72fWkRmaAVOY1Zg
-http://localhost:5000/index.html?invite=u6pBMioHCEWbGho4OXP2jpYp58oQbWWDtRrncecCK78
