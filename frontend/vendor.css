@@ -92,7 +92,7 @@ h2 { font-size: 16px; }
 .sub { color: var(--ink-faint); font-size: 13px; }
 
 .who {
-    text-align: right;
+    text-align: end;
     line-height: 1.4;
 }
 
@@ -140,7 +140,7 @@ table {
 .extra-table { min-width: 940px; }
 
 thead th {
-    text-align: left;
+    text-align: start;
     font-size: 11px;
     text-transform: uppercase;
     letter-spacing: 0.04em;
@@ -174,10 +174,10 @@ tfoot td {
 
 .col-can { width: 120px; }
 .col-price { width: 130px; }
-.col-total { width: 130px; text-align: right; white-space: nowrap; }
+.col-total { width: 130px; text-align: end; white-space: nowrap; }
 tfoot .col-total { color: var(--brand-dark); }
 
-.line-total { text-align: right; font-weight: 600; }
+.line-total { text-align: end; font-weight: 600; }
 .line-total.empty { color: var(--ink-faint); font-weight: 400; }
 
 tbody tr.priced { background: #f2f7ff; }
@@ -279,7 +279,7 @@ button[disabled] {
 .toasts {
     position: fixed;
     top: 16px;
-    right: 16px;
+    inset-inline-end: 16px;
     z-index: 50;
     display: flex;
     flex-direction: column;
@@ -300,14 +300,16 @@ button[disabled] {
 .toast.bad { background: var(--bad); }
 
 @keyframes slide {
-    from { opacity: 0; transform: translateX(16px); }
+    from { opacity: 0; transform: translateX(var(--slide-from, 16px)); }
     to   { opacity: 1; transform: translateX(0); }
 }
+
+[dir="rtl"] { --slide-from: -16px; }
 
 @media (max-width: 640px) {
     .fields { grid-template-columns: 1fr; }
     .card-head { flex-direction: column; }
-    .who { text-align: left; }
+    .who { text-align: start; }
     .actions { flex-direction: column-reverse; align-items: stretch; }
     .actions button { width: 100%; }
 }
@@ -432,14 +434,14 @@ h3.section + .lede { margin-bottom: 12px; }
     align-items: center;
     padding: 0 12px;
     background: var(--wash);
-    border-left: 1px solid var(--line);
+    border-inline-start: 1px solid var(--line);
     color: var(--ink-faint);
     font-size: 12.5px;
     white-space: nowrap;
 }
 
 .offer-running {
-    margin-right: auto;
+    margin-inline-end: auto;
     color: var(--ink-soft);
     font-size: 14px;
 }
@@ -449,8 +451,7 @@ h3.section + .lede { margin-bottom: 12px; }
 th.tick, td.tick {
     width: 42px;
     text-align: center;
-    padding-left: 10px;
-    padding-right: 10px;
+    padding-inline: 10px;
 }
 
 td.tick input[type="checkbox"] {
@@ -519,9 +520,9 @@ tbody tr.over .col-can::after {
 @media (max-width: 640px) {
     .offer-row { flex-wrap: wrap; }
     .offer-id { flex-basis: 100%; }
-    .offer-actions { margin-left: auto; }
+    .offer-actions { margin-inline-start: auto; }
     .card-head button { width: 100%; justify-content: center; }
-    .offer-running { margin-right: 0; text-align: center; }
+    .offer-running { margin-inline-end: 0; text-align: center; }
 }
 
 .doc-slots {
@@ -556,4 +557,51 @@ tbody tr.over .col-can::after {
 }
 @media (max-width: 620px) {
     .doc-slot { grid-template-columns: 1fr; gap: 4px; }
+}
+
+.lang-switch {
+    margin-inline-start: auto;
+    align-self: center;
+    padding: 5px 12px;
+    font: inherit;
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--ink-soft);
+    background: var(--wash);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    cursor: pointer;
+}
+
+.lang-switch:hover {
+    color: var(--ink);
+    border-color: var(--ink-faint);
+}
+
+.lang-switch:focus-visible {
+    outline: 2px solid var(--brand);
+    outline-offset: 2px;
+}
+
+[dir="rtl"] body {
+    font-family: "Segoe UI", Tahoma, "Noto Naskh Arabic", "Geeza Pro", Arial, sans-serif;
+}
+
+[dir="rtl"] h1,
+[dir="rtl"] h2,
+[dir="rtl"] h3 {
+    letter-spacing: normal;
+}
+
+[dir="rtl"] .num,
+[dir="rtl"] .qty,
+[dir="rtl"] .line-total,
+[dir="rtl"] .offer-total,
+[dir="rtl"] input[type="number"] {
+    direction: ltr;
+    text-align: end;
+}
+
+[dir="rtl"] .num {
+    text-align: center;
 }

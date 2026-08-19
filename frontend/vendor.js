@@ -17,7 +17,19 @@ const state = {
 
     editing: null,
     submitting: false,
+    lastPaint: null,
 };
+
+const t = (...args) => window.I18N.t(...args);
+
+function joinList(parts) {
+    return parts.join(window.I18N.rtl() ? '، ' : ', ');
+}
+
+function paint(fn) {
+    state.lastPaint = fn;
+    fn();
+}
 
 const $ = (id) => document.getElementById(id);
 const page = () => $('page');
@@ -45,16 +57,20 @@ function filled(value) {
 
 function money(amount) {
     const currency = state.tender ? state.tender.currency : '';
-    return `${currency} ${num(amount).toLocaleString(undefined, {
+    return `${currency} ${num(amount).toLocaleString(window.I18N.locale(), {
         minimumFractionDigits: 2, maximumFractionDigits: 2,
     })}`;
 }
 
-function formatDeadline(t) {
-    if (!t || !t.deadline_date) return 'no closing date set';
-    const d = new Date(`${t.deadline_date}T${t.deadline_time || '00:00'}`);
-    if (isNaN(d)) return `${t.deadline_date} ${t.deadline_time || ''}`.trim();
-    return d.toLocaleString(undefined, {
+function qty(value) {
+    return num(value).toLocaleString(window.I18N.locale());
+}
+
+function formatDeadline(tender) {
+    if (!tender || !tender.deadline_date) return t('noDeadline');
+    const d = new Date(`${tender.deadline_date}T${tender.deadline_time || '00:00'}`);
+    if (isNaN(d)) return `${tender.deadline_date} ${tender.deadline_time || ''}`.trim();
+    return d.toLocaleString(window.I18N.locale(), {
         year: 'numeric', month: 'short', day: 'numeric',
         hour: '2-digit', minute: '2-digit',
     });
@@ -85,6 +101,24 @@ function showState(icon, heading, body) {
             <h2>${esc(heading)}</h2>
             <p>${esc(body)}</p>
         </div></div>`;
+}
+
+function paintStatics() {
+    document.title = state.tender ? t('docTitle', state.tender.serial) : t('pageTitle');
+    $('mastheadNote').textContent = t('mastheadNote');
+    $('footerNote').textContent = t('footer');
+    const loading = $('loadingText');
+    if (loading) loading.textContent = t('loading');
+    const button = $('langSwitch');
+    button.textContent = t('switchTo');
+    button.setAttribute('aria-label', t('switchToAria'));
+}
+
+function switchLanguage() {
+    if (state.editing) harvest();
+    window.I18N.set(window.I18N.other());
+    paintStatics();
+    if (state.lastPaint) state.lastPaint();
 }
 
 function draftKey() {
@@ -201,7 +235,7 @@ function blankOffer() {
 function offerLabel(offer) {
     const i = state.offers.findIndex((o) => o.id === offer.id);
     const n = i === -1 ? state.offers.length + 1 : i + 1;
-    return `Offer ${n}`;
+    return t('offerLabel', n);
 }
 
 function render() {
@@ -212,7 +246,7 @@ function render() {
             <div class="card-head">
                 <div>
                     <h1>${esc(tender.name)}</h1>
-                    <span class="sub">${esc(tender.serial)} &middot; closes ${esc(formatDeadline(tender))}</span>
+                    <span class="sub">${esc(tender.serial)} &middot; ${esc(t('closes', formatDeadline(tender)))}</span>
                 </div>
                 <div class="who">
                     <strong>${esc(vendor.company_name)}</strong>
@@ -221,12 +255,10 @@ function render() {
             </div>
             <div class="card-body">
                 ${tender.description ? `<p class="lede" style="margin-bottom:10px;">${esc(tender.description)}</p>` : ''}
-                <p class="lede">This invitation is addressed to ${esc(vendor.company_name)}.
-                   Please don't forward it &mdash; the link files a quotation in your name.</p>
+                <p class="lede">${esc(t('addressedTo', vendor.company_name))}</p>
                 ${(tender.required_docs || []).length ? `
-                    <p class="lede" style="margin-top:10px;"><strong>Documents required:</strong>
-                       ${esc((tender.required_docs || []).join(', '))}. There is an upload box for
-                       each of them further down &mdash; a quotation can't be sent without them.</p>` : ''}
+                    <p class="lede" style="margin-top:10px;"><strong>${esc(t('docsRequired'))}</strong>
+                       ${esc(joinList(tender.required_docs || []))}. ${esc(t('docsRequiredTail'))}</p>` : ''}
             </div>
         </div>
         ${requirementsCard()}
@@ -240,8 +272,7 @@ function requirementsCard() {
     const items = state.tender.items || [];
     if (!items.length) {
         return `<div class="card"><div class="card-body">
-            <p class="lede">No itemised list was attached to this tender. Describe what you
-               are offering in the offer below.</p></div></div>`;
+            <p class="lede">${esc(t('noItemised'))}</p></div></div>`;
     }
     const rows = items.map((item, i) => `
         <tr>
@@ -249,26 +280,26 @@ function requirementsCard() {
             <td><strong>${esc(item.name)}</strong></td>
             <td class="want">${esc(item.specs) || '&mdash;'}</td>
             <td class="want">${esc(item.notes) || '&mdash;'}</td>
-            <td class="qty">${num(item.quantity).toLocaleString()} ${esc(item.unit)}</td>
+            <td class="qty">${qty(item.quantity)} ${esc(item.unit)}</td>
         </tr>`).join('');
 
     return `
         <div class="card">
             <div class="card-head">
                 <div>
-                    <h2>What we're asking for</h2>
-                    <span class="sub">${items.length} item${items.length === 1 ? '' : 's'}</span>
+                    <h2>${esc(t('asking'))}</h2>
+                    <span class="sub">${esc(t('itemCount', items.length))}</span>
                 </div>
             </div>
             <div class="card-body">
                 <div class="table-scroll">
                     <table class="req-table">
                         <thead><tr>
-                            <th class="num">#</th>
-                            <th>Item</th>
-                            <th>Specification</th>
-                            <th>Notes</th>
-                            <th>Quantity</th>
+                            <th class="num">${esc(t('thNum'))}</th>
+                            <th>${esc(t('thItem'))}</th>
+                            <th>${esc(t('thSpec'))}</th>
+                            <th>${esc(t('thNotes'))}</th>
+                            <th>${esc(t('thQuantity'))}</th>
                         </tr></thead>
                         <tbody>${rows}</tbody>
                     </table>
@@ -282,21 +313,19 @@ function listCard() {
         ? `<div class="offer-list">${state.offers.map(offerSummary).join('')}</div>`
         : `<div class="state">
                ${ICON.empty}
-               <h2>No offers yet</h2>
-               <p>An offer is one complete way of answering this tender. Tick the items you
-                  can supply, add anything you're proposing instead, and save it. Add a second
-                  offer if you have an alternative worth pricing.</p>
+               <h2>${esc(t('noOffersTitle'))}</h2>
+               <p>${esc(t('noOffersBody'))}</p>
            </div>`;
 
     return `
         <div class="card-head">
             <div>
-                <h2>Your offers</h2>
-                <span class="sub">${state.offers.length
-                    ? `${state.offers.length} saved &middot; nothing has been sent yet`
-                    : 'Nothing saved yet'}</span>
+                <h2>${esc(t('yourOffers'))}</h2>
+                <span class="sub">${esc(state.offers.length
+                    ? t('savedNothingSent', state.offers.length)
+                    : t('nothingSaved'))}</span>
             </div>
-            <button type="button" id="addOffer">${ICON.plus} Add an offer</button>
+            <button type="button" id="addOffer">${ICON.plus} ${esc(t('addOffer'))}</button>
         </div>
         <div class="card-body">${body}</div>`;
 }
@@ -304,11 +333,11 @@ function listCard() {
 function offerSummary(offer) {
     const cover = offerCoverage(offer);
     const bits = [];
-    if (cover.of) bits.push(`${cover.covered} of ${cover.of} requested item${cover.of === 1 ? '' : 's'}`);
-    if (cover.replacements) bits.push(`${cover.replacements} substitute${cover.replacements === 1 ? '' : 's'}`);
-    if (cover.extras) bits.push(`${cover.extras} extra${cover.extras === 1 ? '' : 's'}`);
+    if (cover.of) bits.push(t('coverItems', cover.covered, cover.of));
+    if (cover.replacements) bits.push(t('coverSubs', cover.replacements));
+    if (cover.extras) bits.push(t('coverExtras', cover.extras));
 
-    const summary = bits.map(esc).join(' &middot; ') || 'nothing priced';
+    const summary = bits.map(esc).join(' &middot; ') || esc(t('nothingPriced'));
 
     return `
         <div class="offer-row">
@@ -318,9 +347,9 @@ function offerSummary(offer) {
             </div>
             <div class="offer-total">${esc(money(offerTotal(offer)))}</div>
             <div class="offer-actions">
-                <button type="button" class="ghost" data-edit="${escAttr(offer.id)}">Edit</button>
+                <button type="button" class="ghost" data-edit="${escAttr(offer.id)}">${esc(t('edit'))}</button>
                 <button type="button" class="ghost danger" data-remove="${escAttr(offer.id)}"
-                        aria-label="Remove ${escAttr(offerLabel(offer))}">${ICON.trash}</button>
+                        aria-label="${escAttr(t('removeAria', offerLabel(offer)))}">${ICON.trash}</button>
             </div>
         </div>`;
 }
@@ -330,14 +359,13 @@ function documentsBlock() {
     if (!docs.length) return '';
     return `
         <div class="doc-slots">
-            <h3>Documents we need from you</h3>
-            <p class="hint">All of them, or the quotation can't be sent. PDF, image or
-               office file &mdash; whatever you have.</p>
+            <h3>${esc(t('docsTitle'))}</h3>
+            <p class="hint">${esc(t('docsHint'))}</p>
             ${docs.map((doc, i) => `
                 <div class="doc-slot">
                     <label for="doc-${i}">${esc(doc)}</label>
                     <input id="doc-${i}" type="file" data-doc="${escAttr(doc)}"
-                           aria-label="Upload ${escAttr(doc)}">
+                           aria-label="${escAttr(t('uploadAria', doc))}">
                 </div>`).join('')}
         </div>`;
 }
@@ -353,7 +381,7 @@ function collectDocuments() {
         else missing.push(doc);
     });
     if (missing.length) {
-        toast(`Still to attach: ${missing.join(', ')}.`, true);
+        toast(t('stillToAttach', joinList(missing)), true);
         return null;
     }
     return picked;
@@ -363,39 +391,37 @@ function sendCard() {
     const total = state.offers.length ? Math.min(...state.offers.map(offerTotal)) : 0;
     return `
         <div class="card">
-            <div class="card-head"><h2>Send your quotation</h2></div>
+            <div class="card-head"><h2>${esc(t('sendTitle'))}</h2></div>
             <div class="card-body">
                 <div class="notice">
                     ${ICON.warn}
-                    <span>Nothing above has reached us yet. Once you send, your quotation is
-                          sealed and can't be changed &mdash; please check your prices first.</span>
+                    <span>${esc(t('sendNotice'))}</span>
                 </div>
 
                 ${documentsBlock()}
 
                 <div class="fields">
                     <div>
-                        <label for="deposit">Deposit / advance required</label>
+                        <label for="deposit">${esc(t('depositLabel'))}</label>
                         <div class="suffixed">
                             <input id="deposit" type="number" min="0" max="100" step="0.1"
                                    inputmode="decimal" value="0">
-                            <span class="suffix">% of the offer total</span>
+                            <span class="suffix">${esc(t('depositSuffix'))}</span>
                         </div>
-                        <p class="hint">A percentage, not an amount &mdash; it applies to
-                           whichever offer is accepted. Enter 0 if none is required.</p>
+                        <p class="hint">${esc(t('depositHint'))}</p>
                     </div>
                     <div class="wide">
-                        <label for="notes">Anything else we should know</label>
-                        <textarea id="notes" placeholder="Delivery time, warranty, payment terms"></textarea>
+                        <label for="notes">${esc(t('notesLabel'))}</label>
+                        <textarea id="notes" placeholder="${escAttr(t('notesPlaceholder'))}"></textarea>
                     </div>
                 </div>
 
                 <div class="actions">
-                    <span class="sub" id="counted">${state.offers.length
-                        ? `${state.offers.length} offer${state.offers.length === 1 ? '' : 's'}, from ${esc(money(total))}`
-                        : 'Add an offer before sending'}</span>
+                    <span class="sub" id="counted">${esc(state.offers.length
+                        ? t('countedSome', state.offers.length, money(total))
+                        : t('countedNone'))}</span>
                     <button id="send" type="button" ${state.offers.length ? '' : 'disabled'}>
-                        Send quotation</button>
+                        ${esc(t('send'))}</button>
                 </div>
             </div>
         </div>`;
@@ -413,22 +439,22 @@ function editorCard() {
         <tr data-pick="${escAttr(item.id)}" class="${on ? 'priced' : 'off'}">
             <td class="tick">
                 <input type="checkbox" data-field="have" ${on ? 'checked' : ''}
-                       aria-label="I can supply ${escAttr(item.name)}">
+                       aria-label="${escAttr(t('ariaCanSupply', item.name))}">
             </td>
             <td class="num">${i + 1}</td>
             <td><strong>${esc(item.name)}</strong>
-                <span class="want block">${esc(item.specs) || 'no specification given'}</span></td>
-            <td class="qty">${num(item.quantity).toLocaleString()} ${esc(item.unit)}</td>
+                <span class="want block">${esc(item.specs) || esc(t('noSpec'))}</span></td>
+            <td class="qty">${qty(item.quantity)} ${esc(item.unit)}</td>
             <td class="col-can">
                 <input data-field="qty" type="number" min="0" step="any" inputmode="decimal"
                        value="${on ? escAttr(pick.qty) : escAttr(item.quantity)}"
                        ${on ? '' : 'disabled'}
-                       aria-label="How many ${escAttr(item.name)} you can supply">
+                       aria-label="${escAttr(t('ariaHowMany', item.name))}">
             </td>
             <td class="col-price">
                 <input data-field="price" type="number" min="0" step="0.01" inputmode="decimal"
                        value="${on ? escAttr(pick.price) : ''}" ${on ? '' : 'disabled'}
-                       aria-label="Unit price for ${escAttr(item.name)}">
+                       aria-label="${escAttr(t('ariaUnitPriceFor', item.name))}">
             </td>
             <td class="line-total ${on ? '' : 'empty'}" data-total>&mdash;</td>
         </tr>`;
@@ -438,109 +464,96 @@ function editorCard() {
         <tr data-extra="${i}">
             <td class="num">${i + 1}</td>
             <td><input data-field="name" value="${escAttr(extra.name)}"
-                       placeholder="What you're offering" aria-label="Item name"></td>
+                       placeholder="${escAttr(t('phWhatOffering'))}" aria-label="${escAttr(t('ariaItemName'))}"></td>
             <td><input data-field="specs" value="${escAttr(extra.specs)}"
-                       placeholder="Make, model, spec" aria-label="Specification"></td>
+                       placeholder="${escAttr(t('phMakeModel'))}" aria-label="${escAttr(t('ariaSpec'))}"></td>
             <td class="col-replaces">
-                <select data-field="replaces" aria-label="What this replaces">
-                    <option value="">Extra &mdash; nothing on the list</option>
+                <select data-field="replaces" aria-label="${escAttr(t('ariaReplaces'))}">
+                    <option value="">${esc(t('extraNothing'))}</option>
                     ${items.map((it, n) => `
                         <option value="${escAttr(it.id)}" ${extra.replaces === it.id ? 'selected' : ''}
-                            >instead of #${n + 1} ${escAttr(it.name)}</option>`).join('')}
+                            >${esc(t('insteadOf', n + 1, it.name))}</option>`).join('')}
                 </select>
             </td>
             <td class="col-can"><input data-field="qty" type="number" min="0" step="any"
-                       inputmode="decimal" value="${escAttr(extra.qty)}" aria-label="Quantity"></td>
+                       inputmode="decimal" value="${escAttr(extra.qty)}" aria-label="${escAttr(t('ariaQty'))}"></td>
             <td class="col-unit"><input data-field="unit" value="${escAttr(extra.unit)}"
-                       placeholder="pcs" aria-label="Unit"></td>
+                       placeholder="${escAttr(t('phUnit'))}" aria-label="${escAttr(t('ariaUnit'))}"></td>
             <td class="col-price"><input data-field="price" type="number" min="0" step="0.01"
-                       inputmode="decimal" value="${escAttr(extra.price)}" aria-label="Unit price"></td>
+                       inputmode="decimal" value="${escAttr(extra.price)}" aria-label="${escAttr(t('ariaUnitPrice'))}"></td>
             <td class="line-total empty" data-total>&mdash;</td>
             <td class="tick"><button type="button" class="ghost danger" data-drop="${i}"
-                       aria-label="Remove this row">${ICON.trash}</button></td>
+                       aria-label="${escAttr(t('ariaRemoveRow'))}">${ICON.trash}</button></td>
         </tr>`).join('');
 
     return `
         <div class="card-head">
             <div>
-                <h2>${esc(known ? `Editing ${offerLabel(offer)}` : `New offer (${state.offers.length + 1})`)}</h2>
-                <span class="sub">Saved on this device only until you send the quotation</span>
+                <h2>${esc(known ? t('editingTitle', offerLabel(offer)) : t('newOfferTitle', state.offers.length + 1))}</h2>
+                <span class="sub">${esc(t('draftNote'))}</span>
             </div>
         </div>
         <div class="card-body">
             <div class="fields tight">
                 <div class="wide">
-                    <label for="offerTitle">A name for this option <span class="opt">(optional)</span></label>
+                    <label for="offerTitle">${esc(t('optionNameLabel'))} <span class="opt">${esc(t('optional'))}</span></label>
                     <input id="offerTitle" value="${escAttr(offer.title)}"
-                           placeholder="e.g. Original brand, or Budget alternative">
-                    <p class="hint">Shown to the people comparing offers. Please don't put your
-                       company name here &mdash; offers are compared without knowing whose they are.</p>
+                           placeholder="${escAttr(t('optionNamePlaceholder'))}">
+                    <p class="hint">${esc(t('optionNameHint'))}</p>
                 </div>
             </div>
 
-            <h3 class="section">Items we asked for</h3>
-            <p class="lede">Tick anything you can supply and the details are filled in for you
-               &mdash; you only enter a quantity and your unit price. Leave the rest unticked.
-               The quantity is yours to set in either direction: <strong>fewer</strong> than we
-               asked for is a perfectly good answer (two of a requested three, and we source
-               the rest elsewhere), and <strong>more</strong> is fine too if that's how it
-               comes &mdash; a box of ten, or a spare thrown in.</p>
-            <p class="lede">Enter <strong>0</strong> as the price for anything you're giving
-               away: a case with the laptop, a bundled accessory, a sample. Please don't leave
-               a price box empty, though &mdash; a blank isn't read as free.</p>
+            <h3 class="section">${esc(t('sectionAsked'))}</h3>
+            <p class="lede">${t('ledeAsked1')}</p>
+            <p class="lede">${t('ledeAsked2')}</p>
             ${items.length ? `
             <div class="table-scroll">
                 <table class="pick-table">
                     <thead><tr>
-                        <th class="tick"><span class="sr">Can supply</span></th>
-                        <th class="num">#</th>
-                        <th>Item</th>
-                        <th>Asked for</th>
-                        <th class="col-can">Qty you can supply</th>
-                        <th class="col-price">Unit price</th>
-                        <th class="col-total">Line total</th>
+                        <th class="tick"><span class="sr">${esc(t('thCanSupply'))}</span></th>
+                        <th class="num">${esc(t('thNum'))}</th>
+                        <th>${esc(t('thItem'))}</th>
+                        <th>${esc(t('thAskedFor'))}</th>
+                        <th class="col-can">${esc(t('thQtyCan'))}</th>
+                        <th class="col-price">${esc(t('thUnitPrice'))}</th>
+                        <th class="col-total">${esc(t('thLineTotal'))}</th>
                     </tr></thead>
                     <tbody>${pickRows}</tbody>
                 </table>
-            </div>` : '<p class="lede">Nothing was itemised on this tender.</p>'}
+            </div>` : `<p class="lede">${esc(t('nothingItemised'))}</p>`}
 
-            <h3 class="section">Anything you're offering instead</h3>
-            <p class="lede">Only for what isn't on the list above &mdash; a substitute for
-               something you don't stock, a bundled extra, or a gift you're including. Type
-               these in yourself and say which line they stand in for &mdash; the numbers match
-               the list at the top of this page, so two rows with the same name stay apart.
-               Price a giveaway at 0 and it shows on the quotation without adding to the
-               total.</p>
+            <h3 class="section">${esc(t('sectionInstead'))}</h3>
+            <p class="lede">${esc(t('ledeInstead'))}</p>
             ${(offer.extras || []).length ? `
             <div class="table-scroll">
                 <table class="extra-table">
                     <thead><tr>
-                        <th class="num">#</th>
-                        <th>Item</th>
-                        <th>Specification</th>
-                        <th class="col-replaces">Stands in for</th>
-                        <th class="col-can">Qty</th>
-                        <th class="col-unit">Unit</th>
-                        <th class="col-price">Unit price</th>
-                        <th class="col-total">Line total</th>
-                        <th class="tick"><span class="sr">Remove</span></th>
+                        <th class="num">${esc(t('thNum'))}</th>
+                        <th>${esc(t('thItem'))}</th>
+                        <th>${esc(t('thSpec'))}</th>
+                        <th class="col-replaces">${esc(t('thStandsIn'))}</th>
+                        <th class="col-can">${esc(t('thQty'))}</th>
+                        <th class="col-unit">${esc(t('thUnit'))}</th>
+                        <th class="col-price">${esc(t('thUnitPrice'))}</th>
+                        <th class="col-total">${esc(t('thLineTotal'))}</th>
+                        <th class="tick"><span class="sr">${esc(t('thRemove'))}</span></th>
                     </tr></thead>
                     <tbody>${extraRows}</tbody>
                 </table>
             </div>` : ''}
-            <button type="button" class="ghost add" id="addExtra">${ICON.plus} Add an item of your own</button>
+            <button type="button" class="ghost add" id="addExtra">${ICON.plus} ${esc(t('addOwnItem'))}</button>
 
             <div class="fields tight">
                 <div class="wide">
-                    <label for="offerNotes">Notes on this offer <span class="opt">(optional)</span></label>
-                    <textarea id="offerNotes" placeholder="Lead time, warranty, why you're proposing a substitute">${esc(offer.notes)}</textarea>
+                    <label for="offerNotes">${esc(t('offerNotesLabel'))} <span class="opt">${esc(t('optional'))}</span></label>
+                    <textarea id="offerNotes" placeholder="${escAttr(t('offerNotesPlaceholder'))}">${esc(offer.notes)}</textarea>
                 </div>
             </div>
 
             <div class="actions">
-                <span class="offer-running">Offer total <strong id="offerTotal">${esc(money(0))}</strong></span>
-                <button type="button" class="ghost" id="cancelOffer">Cancel</button>
-                <button type="button" id="saveOffer">${known ? 'Save changes' : 'Save offer'}</button>
+                <span class="offer-running">${esc(t('offerTotal'))} <strong id="offerTotal">${esc(money(0))}</strong></span>
+                <button type="button" class="ghost" id="cancelOffer">${esc(t('cancel'))}</button>
+                <button type="button" id="saveOffer">${esc(known ? t('saveChanges') : t('saveOffer'))}</button>
             </div>
         </div>`;
 }
@@ -689,16 +702,16 @@ function saveOffer() {
         if (!started) return;
         if (!(extra.name || '').trim() || num(extra.qty) <= 0
             || !filled(extra.price) || num(extra.price) < 0) {
-            incomplete.push(`your own item ${i + 1}`);
+            incomplete.push(t('yourOwnItem', i + 1));
         }
     });
     if (incomplete.length) {
-        toast(`Needs a quantity and a price (enter 0 if it's free): ${incomplete.join(', ')}.`, true);
+        toast(t('needQtyPrice', joinList(incomplete)), true);
         return;
     }
 
     if (!offerLines(offer).length) {
-        toast('Tick at least one item, or add one of your own, before saving.', true);
+        toast(t('tickAtLeastOne'), true);
         return;
     }
 
@@ -708,9 +721,7 @@ function saveOffer() {
     render();
 
     const over = overSupplied(offer);
-    toast(over.length
-        ? `Offer saved. Note you've quoted more than we asked for on: ${over.join(', ')}.`
-        : 'Offer saved. Nothing is sent until you send the quotation.');
+    toast(over.length ? t('savedOver', joinList(over)) : t('savedOk'));
 }
 
 function wireList() {
@@ -732,7 +743,7 @@ function wireList() {
         button.addEventListener('click', () => {
             const offer = state.offers.find((o) => o.id === button.dataset.remove);
             if (!offer) return;
-            if (!window.confirm(`Remove ${offerLabel(offer)}? This can't be undone.`)) return;
+            if (!window.confirm(t('confirmRemove', offerLabel(offer)))) return;
             state.offers = state.offers.filter((o) => o.id !== offer.id);
             saveDrafts();
             render();
@@ -748,13 +759,13 @@ async function submit() {
     const { tender } = state;
 
     if (!state.offers.length) {
-        toast('Add at least one offer before sending.', true);
+        toast(t('addAtLeastOne'), true);
         return;
     }
 
     const deposit = num($('deposit').value);
     if (deposit < 0 || deposit > 100) {
-        toast('The deposit is a percentage, so it has to be between 0 and 100.', true);
+        toast(t('depositRange'), true);
         return;
     }
 
@@ -762,7 +773,7 @@ async function submit() {
     for (const offer of state.offers) {
         const items = offerLines(offer);
         if (!items.length) {
-            toast(`${offerLabel(offer)} has nothing priced in it. Edit or remove it.`, true);
+            toast(t('offerEmpty', offerLabel(offer)), true);
             return;
         }
         payload.push({
@@ -787,7 +798,7 @@ async function submit() {
     state.submitting = true;
     const button = $('send');
     button.disabled = true;
-    button.textContent = 'Sending…';
+    button.textContent = t('sending');
 
     try {
         const res = await fetch(
@@ -795,27 +806,26 @@ async function submit() {
             { method: 'POST', body: form, headers: TUNNEL_HEADERS },
         );
         const body = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(body.detail || 'Your quotation could not be submitted.');
+        if (!res.ok) throw new Error(body.detail || t('submitFailed'));
 
         clearDrafts();
-        showState(ICON.done, 'Quotation received',
-            `Thank you. Your ${payload.length} offer${payload.length === 1 ? '' : 's'} for `
-            + `${tender.serial} ${payload.length === 1 ? 'has' : 'have'} been recorded and can no `
-            + 'longer be changed. The purchasing team will be in touch.');
+        paint(() => showState(ICON.done, t('receivedTitle'),
+                              t('receivedBody', payload.length, tender.serial)));
     } catch (err) {
         state.submitting = false;
         button.disabled = false;
-        button.textContent = 'Send quotation';
+        button.textContent = t('send');
         toast(err.message, true);
     }
 }
 
 async function open() {
+    paintStatics();
+    $('langSwitch').addEventListener('click', switchLanguage);
+
     const token = new URLSearchParams(window.location.search).get('invite');
     if (!token) {
-        showState(ICON.broken, 'Nothing to open here',
-            'This page needs the invitation link that was sent to you. Please open the link '
-            + 'from your email rather than typing the address by hand.');
+        paint(() => showState(ICON.broken, t('nothingToOpen'), t('nothingToOpenBody')));
         return;
     }
     state.token = token;
@@ -828,32 +838,32 @@ async function open() {
         data = await res.json();
     } catch (err) {
 
-        showState(ICON.broken, "This link isn't valid",
-            'It may have been withdrawn, or the address may have been copied incompletely. '
-            + 'Please get in touch with the purchasing team who sent it.');
+        paint(() => showState(ICON.broken, t('linkInvalid'), t('linkInvalidBody')));
         return;
     }
 
     state.tender = data.tender;
     state.vendor = data.vendor;
-    document.title = `Quote — ${data.tender.serial}`;
+    paintStatics();
 
     if (!data.can_submit) {
 
         clearDrafts();
-        page().innerHTML = requirementsCard() + `
-            <div class="card"><div class="state">
-                ${ICON.locked}
-                <h2>This form is closed</h2>
-                <p>${esc(data.closed_reason || 'This tender is not accepting quotations.')}</p>
-            </div></div>`;
+        paint(() => {
+            page().innerHTML = requirementsCard() + `
+                <div class="card"><div class="state">
+                    ${ICON.locked}
+                    <h2>${esc(t('formClosed'))}</h2>
+                    <p>${esc(data.closed_reason || t('formClosedBody'))}</p>
+                </div></div>`;
+        });
         return;
     }
 
     loadDrafts();
-    render();
+    paint(render);
     if (state.offers.length) {
-        toast(`Picked up ${state.offers.length} unsent offer${state.offers.length === 1 ? '' : 's'} from your last visit.`);
+        toast(t('pickedUp', state.offers.length));
     }
 }
 

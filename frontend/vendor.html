@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Invitation to Quote</title>
 
-    <link href="vendor.css?v=6" rel="stylesheet">
+    <link href="vendor.css?v=7" rel="stylesheet">
+    <script src="vendor.i18n.js?v=1"></script>
 </head>
 <body>
     <div class="toasts" id="toasts"></div>
@@ -13,21 +14,22 @@
     <header class="masthead">
         <div class="masthead-inner">
             <span class="wordmark">TenderFlow</span>
-            <span class="masthead-note">Invitation to quote</span>
+            <span class="masthead-note" id="mastheadNote">Invitation to quote</span>
+            <button type="button" class="lang-switch" id="langSwitch">العربية</button>
         </div>
     </header>
 
     <main id="page">
         <div class="loading">
             <div class="spinner"></div>
-            <p>Opening your invitation…</p>
+            <p id="loadingText">Opening your invitation…</p>
         </div>
     </main>
 
     <footer class="footer">
-        <p>This link was addressed to your company. If you weren't expecting it, please contact the purchasing team who sent it.</p>
+        <p id="footerNote">This link was addressed to your company. If you weren't expecting it, please contact the purchasing team who sent it.</p>
     </footer>
 
-    <script src="vendor.js?v=6"></script>
+    <script src="vendor.js?v=7"></script>
 </body>
 </html>
