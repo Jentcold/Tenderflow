@@ -18,9 +18,6 @@ class LineCondition(str, enum.Enum):
     other = "other"
 
 
-PROBLEM_CONDITIONS = [c for c in LineCondition if c is not LineCondition.ok]
-
-
 class GoodsReceipt(Base, UUIDPKMixin):
     __tablename__ = "goods_receipts"
 

@@ -31,8 +31,6 @@ const roleNames = {
     employee: 'Employee'
 };
 
-const CATEGORIES = ['goods', 'services', 'works', 'consulting'];
-
 const SAME_ORIGIN_API = API_BASE.startsWith('/');
 
 function tunnelHeaders(headers) {
@@ -954,9 +952,6 @@ async function renderProcurementDashboard(container) {
                         <td class="offer-actions">
                             ${t.urgent ? '<span class="badge badge-danger">Urgent</span>' : ''}
                             <button class="action-btn" onclick="openTenderFor('${t.id}')" title="View"><i class="fas fa-eye"></i></button>
-                            <!-- Inviting vendors is the next thing that happens to a tender
-                                 the moment it opens, so it belongs on the panel where you
-                                 first see that it opened, not one screen away. -->
                             ${t.status === 'open' ? `<button class="action-btn" onclick="event.stopPropagation(); openTenderVendors('${t.id}')" title="Choose which vendors are asked"><i class="fas fa-paper-plane"></i></button>` : ''}
                             ${(t.submission_count || 0) > 0 ? `<button class="action-btn" onclick="event.stopPropagation(); openOffersFor('${t.id}')" title="Offers on this tender"><i class="fas fa-scale-balanced"></i></button>` : ''}
                         </td>
@@ -2277,11 +2272,6 @@ async function openTenderReview(tenderId) {
 
         ${canDecide ? `
             <div class="review-actions">
-                <!-- Editing here rather than only sending it back. A wrong
-                     quantity or a missing line took a rejection note, a wait,
-                     and a resubmission for a change the manager could have
-                     typed in less time than the note took to write. They
-                     already hold the decision. -->
                 <button class="btn btn-secondary" onclick="closeModal('viewTenderModal'); openEditTenderModal('${tender.id}')">
                     <i class="fas fa-edit"></i> Edit it yourself
                 </button>
@@ -3026,9 +3016,6 @@ async function renderApprovedTendersPage(container) {
                                         <td>
                                             <div class="actions">
                                                 <button class="action-btn" onclick="viewTender('${tender.id}')" title="View tender"><i class="fas fa-eye"></i></button>
-                                                <!-- Moving an award is now withdrawing the approved offer on the
-                                                     Offers desk, which records a reason and frees the tender for a
-                                                     fresh shortlist. -->
                                                 <button class="action-btn" onclick="navigateTo('offers')" title="Change this award on the Offers desk"><i class="fas fa-right-left"></i></button>
                                             </div>
                                         </td>

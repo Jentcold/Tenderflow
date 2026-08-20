@@ -1,5 +1,4 @@
 import uuid
-from datetime import time
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
@@ -30,8 +29,6 @@ router = APIRouter(prefix="/templates", tags=["templates"], dependencies=[Depend
 
 CAN_EDIT_TEMPLATES = require_purchasing("admin", "procurement")
 CAN_USE_TEMPLATES = require_purchasing("admin", "procurement", "employee")
-
-DEFAULT_DEADLINE_TIME = time(9, 0)
 
 
 async def _items_of(db: AsyncSession, template_id: uuid.UUID) -> list[TemplateItem]:

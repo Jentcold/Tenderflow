@@ -1,7 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
-from sqlalchemy import or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.audit import log_audit
@@ -12,12 +12,11 @@ from app.core.time import server_now
 from app.database import get_db
 from app.models.department import PURCHASING_CODE, Department
 from app.models.notification import Notification, NotificationType
-from app.models.offer import APPROVAL_ORDER, Offer, OfferItem, OfferStatus
+from app.models.offer import Offer, OfferItem, OfferStatus
 from app.models.submission import Submission, SubmissionStatus
 from app.models.tender import Tender, TenderStatus
 from app.models.user import User, UserRole
 from app.schemas.offer import (
-    MAX_SHORTLIST,
     OfferForward,
     OfferItemOut,
     OfferOut,

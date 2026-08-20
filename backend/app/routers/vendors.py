@@ -4,7 +4,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.core.audit import log_audit
 from app.core.deps import require_staff
 from app.core.scope import require_purchasing
@@ -17,7 +16,7 @@ from app.models.offer import Offer, OfferItem
 from app.models.submission import Submission
 from app.models.tender import Tender
 from app.models.user import User
-from app.models.vendor import TenderVendorInvite, Vendor
+from app.models.vendor import Vendor
 from app.schemas.vendor import (
     VendorAwardOut,
     VendorCreate,

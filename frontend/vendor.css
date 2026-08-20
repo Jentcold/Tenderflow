@@ -170,7 +170,6 @@ tfoot td {
 .num { width: 34px; color: var(--ink-faint); text-align: center; }
 .want { font-size: 13px; color: var(--ink-soft); }
 .qty { white-space: nowrap; }
-.col-offer { width: 180px; }
 
 .col-can { width: 120px; }
 .col-price { width: 130px; }
@@ -221,8 +220,6 @@ textarea { resize: vertical; min-height: 76px; }
 }
 
 .fields .wide { grid-column: 1 / -1; }
-
-.req { color: var(--bad); }
 
 .actions {
     display: flex;

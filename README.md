@@ -219,9 +219,14 @@ and then 500s serialising the user into the token response.
   notices; a split one writes `awarded_vendor_name = "3 vendors"` and sends
   nothing, because telling a vendor they lost a tender they partly won would be
   wrong. Per-vendor award notices are still to write.
+- **The award-withdrawn email never sends.** Rejecting an already-approved
+  offer withdraws the award, and `send_reassignment_emails` in
+  `services/email_service.py` was written to tell the losing vendor — but
+  nothing calls it. The template, its "Award Withdrawn" label and its row on
+  the Email Templates screen are all live, so the app offers an email it has no
+  code path to send. Wire it into the reject path.
 - The `vendor` role on `users` is a vestige — vendors have no accounts. It
-  should come off the enum, along with `vendor_register_limit`, which no
-  endpoint uses since self-registration was removed.
+  should come off the enum.
 - Nothing closes a tender when its deadline passes; `is_expired` is computed
   per request instead.
 - Per-category item columns, asked for by purchasing: stationery needs no model

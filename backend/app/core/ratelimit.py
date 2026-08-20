@@ -120,6 +120,3 @@ login_throttle = LoginThrottle()
 
 vendor_read_limit = RateLimit(settings.VENDOR_READ_RATE_LIMIT_TIMES, settings.VENDOR_READ_RATE_LIMIT_SECONDS)
 vendor_submit_limit = RateLimit(settings.VENDOR_SUBMIT_RATE_LIMIT_TIMES, settings.VENDOR_SUBMIT_RATE_LIMIT_SECONDS)
-vendor_register_limit = RateLimit(
-    settings.VENDOR_REGISTER_RATE_LIMIT_TIMES, settings.VENDOR_REGISTER_RATE_LIMIT_SECONDS
-)
